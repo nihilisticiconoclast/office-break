@@ -24,6 +24,28 @@ python3 -m http.server 8000
 | --- | --- |
 | `←` / `→` (or `A` / `D`) | Move left / right |
 | `Space` (or `↑` / `W`) | Jump |
+| `P` / `Esc` | Pause (also auto-pauses when the window loses focus) |
+| `R` | Restart |
+| `M` | Mute / unmute |
+
+On touch devices, on-screen buttons appear automatically: ◀ ▶ to move
+(bottom-left) and ⬆ to jump (bottom-right).
+
+### Playing on mobile
+
+The game is a static page, so the easiest way to get it on your phone is
+GitHub Pages:
+
+1. On GitHub go to **Settings → Pages**.
+2. Under *Build and deployment*, choose **Deploy from a branch**, pick
+   `main` and `/ (root)`, and save.
+3. After a minute the game is live at
+   `https://<your-username>.github.io/office-break/` — open that on your
+   phone and play. Add it to your home screen for a full-screen feel.
+
+For a quick local test on the same Wi-Fi instead: run
+`python3 -m http.server 8000` in the repo and open
+`http://<your-computer's-ip>:8000` on the phone.
 
 ### Rules
 
@@ -73,7 +95,13 @@ Everything inside the chat area is rendered on the canvas each frame:
   narrow ledges, single corporate phrases make medium bubbles, multi-phrase
   rambles make wide floors, GIFs are chunky square cards, and charts are
   mid-width attachment cards. The mix of alignment and size is what creates
-  the jumpable levels.
+  the jumpable levels. Two special types spice up the descent:
+  - **Urgent messages** (red bar, pulsing outline) scroll ~1.65× faster
+    than everything else — they tailgate the message above (never
+    overlapping) and carry you up quicker if you stand on them.
+  - **Meeting invites** are extra-wide calendar cards with Accept/Decline
+    buttons — the most generous platforms in the game and natural bridges
+    between the left and right columns.
 - **Player** is a small humanoid (head, torso, arms, legs) with a running
   animation on the ground and a tucked pose in the air. Movement uses
   acceleration + friction; jumping uses simple gravity with one-way platform
@@ -91,6 +119,12 @@ Everything inside the chat area is rendered on the canvas each frame:
 - **Difficulty** ramps over time: scroll speed and boss speed increase as
   you survive, and message spawn gaps shrink both with elapsed time and
   with how deep the player is holding.
+- **Feel & polish**: coyote time and jump buffering, landing squash and
+  dust, screen shake on smashes, a danger vignette near the top, synthesized
+  sound effects (mutable, no assets), Teams-style milestone toasts every
+  250 points, boss one-liners ("DENIED."), run stats on the game-over card,
+  and haptic buzz on supported phones. Rendering is high-DPI aware and each
+  bubble is cached to an offscreen canvas for smooth mobile performance.
 
 ### Code layout
 
