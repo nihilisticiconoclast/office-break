@@ -3,17 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Office Break - Chat Runner</title>
+    <title>Office Break &mdash; Chat Descent</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="game-container">
-        <canvas id="game-canvas"></canvas>
-        <div id="score-display">Score: <span id="score">0</span></div>
-        <div id="game-over" class="hidden">
-            <h1>GAME OVER</h1>
-            <p>Final Score: <span id="final-score">0</span></p>
-            <button id="restart-btn">Play Again</button>
+    <div id="app">
+        <!-- Top title bar -->
+        <header id="titlebar">
+            <div class="titlebar-left">
+                <span class="app-logo">◫</span>
+                <span class="app-name">Reams</span>
+            </div>
+            <div class="titlebar-search">
+                <span class="search-icon">⌕</span>
+                <span class="search-placeholder">Search or type a command</span>
+            </div>
+            <div class="titlebar-right">
+                <div class="me-avatar" title="You">ME<span class="presence online"></span></div>
+            </div>
+        </header>
+
+        <div id="main">
+            <!-- Left app rail -->
+            <nav id="rail">
+                <button class="rail-btn" title="Activity"><span class="rail-icon">🔔</span><span class="rail-label">Activity</span></button>
+                <button class="rail-btn active" title="Chat"><span class="rail-icon">💬</span><span class="rail-label">Chat</span></button>
+                <button class="rail-btn" title="Teams"><span class="rail-icon">👥</span><span class="rail-label">Teams</span></button>
+                <button class="rail-btn" title="Calendar"><span class="rail-icon">📅</span><span class="rail-label">Calendar</span></button>
+                <button class="rail-btn" title="Calls"><span class="rail-icon">📞</span><span class="rail-label">Calls</span></button>
+                <button class="rail-btn" title="Files"><span class="rail-icon">📁</span><span class="rail-label">Files</span></button>
+            </nav>
+
+            <!-- Sidebar: channels + colleagues (populated by game.js) -->
+            <aside id="sidebar">
+                <div class="sidebar-top">
+                    <h2>Chat</h2>
+                    <div class="sidebar-actions"><span title="Filter">≡</span><span title="New chat">✎</span></div>
+                </div>
+                <div class="section-label">Pinned</div>
+                <ul id="channel-list" class="chat-list"></ul>
+                <div class="section-label">Recent</div>
+                <ul id="dm-list" class="chat-list"></ul>
+            </aside>
+
+            <!-- Main chat / game column -->
+            <section id="chat-column">
+                <header id="chat-header">
+                    <div class="chat-title">
+                        <div class="channel-avatar">G</div>
+                        <div class="chat-title-text">
+                            <h1>General</h1>
+                            <nav class="chat-tabs">
+                                <span class="tab active">Chat</span>
+                                <span class="tab">Files</span>
+                                <span class="tab">Wiki</span>
+                                <span class="tab">+</span>
+                            </nav>
+                        </div>
+                    </div>
+                    <div id="score-box">
+                        <span class="score-item">Score <strong id="score">0</strong></span>
+                        <span class="score-item">Best <strong id="best">0</strong></span>
+                    </div>
+                </header>
+
+                <div id="chat-area">
+                    <canvas id="game-canvas"></canvas>
+
+                    <div id="start-overlay" class="overlay">
+                        <div class="dialog">
+                            <h1>Office Break</h1>
+                            <p class="tagline">The meeting ran long. The boss is furious. Descend the chat and escape.</p>
+                            <ul class="how-to">
+                                <li><kbd>←</kbd> <kbd>→</kbd>&nbsp; move</li>
+                                <li><kbd>Space</kbd>&nbsp; jump</li>
+                                <li>Ride the messages down &mdash; don't get scrolled off the top, don't fall off the bottom, and don't let the boss catch you.</li>
+                            </ul>
+                            <button id="start-btn" class="primary-btn">Start descending</button>
+                        </div>
+                    </div>
+
+                    <div id="game-over" class="overlay hidden">
+                        <div class="dialog">
+                            <h1>Meeting adjourned</h1>
+                            <p id="game-over-reason">The boss caught you.</p>
+                            <p class="final">Final score: <strong id="final-score">0</strong></p>
+                            <button id="restart-btn" class="primary-btn">Try again</button>
+                            <p class="hint">or press <kbd>Space</kbd></p>
+                        </div>
+                    </div>
+                </div>
+
+                <footer id="composer">
+                    <div id="typing-indicator"><span id="typing-name">Someone</span> is typing<span class="dots"><i></i><i></i><i></i></span></div>
+                    <div class="composer-box">
+                        <span class="composer-placeholder">Type a new message</span>
+                        <div class="composer-icons">
+                            <span title="Format">Aa</span>
+                            <span title="Emoji">☺</span>
+                            <span title="Attach">📎</span>
+                            <span title="GIF">GIF</span>
+                        </div>
+                        <button class="send-btn" title="Send">➤</button>
+                    </div>
+                </footer>
+            </section>
         </div>
     </div>
     <script src="game.js"></script>
