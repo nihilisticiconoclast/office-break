@@ -67,11 +67,20 @@
                     <div id="score-box">
                         <span class="score-item">Score <strong id="score">0</strong></span>
                         <span class="score-item">Best <strong id="best">0</strong></span>
+                        <button id="mute-btn" title="Mute (M)">🔊</button>
                     </div>
                 </header>
 
                 <div id="chat-area">
                     <canvas id="game-canvas"></canvas>
+
+                    <div id="toast">
+                        <div class="toast-accent"></div>
+                        <div class="toast-text">
+                            <div id="toast-title">🏆 250 points</div>
+                            <div id="toast-body">Inbox zero energy</div>
+                        </div>
+                    </div>
 
                     <div id="touch-controls">
                         <div class="tc-move">
@@ -110,6 +119,7 @@
                             <p id="game-over-reason">The boss caught you.</p>
                             <p id="new-best" class="new-best hidden">🎉 New personal best!</p>
                             <p class="final">Final score: <strong id="final-score">0</strong></p>
+                            <p id="go-stats" class="hint"></p>
                             <button id="restart-btn" class="primary-btn">Try again</button>
                             <p class="hint">or press <kbd>Space</kbd></p>
                         </div>

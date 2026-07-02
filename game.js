@@ -116,6 +116,89 @@ const CHART_TITLES = [
     'ROI Model v14'
 ];
 
+const BOSS_QUOTES = ['DENIED.', 'CANCELLED.', 'NOT APPROVED.', 'SEEN. IGNORED.', 'REJECTED.', 'NO.'];
+
+const MILESTONE_FLAVOR = [
+    'Inbox zero energy',
+    'Promotion pending…',
+    'Your calendar fears you',
+    'HR has been notified (positively)',
+    'Certified meeting dodger',
+    'Out of office, in the zone',
+    'The intern is taking notes'
+];
+
+/* --------------------------------------------------------------------------
+   Sound — tiny WebAudio synth, no assets
+   -------------------------------------------------------------------------- */
+
+const Sound = {
+    ctx: null,
+    muted: false,
+
+    ensure: function () {
+        if (!this.ctx) {
+            try {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (err) { /* audio unavailable */ }
+        }
+        if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    },
+
+    tone: function (freq, dur, type, vol, slide) {
+        if (this.muted || !this.ctx) return;
+        const t0 = this.ctx.currentTime;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = type || 'square';
+        o.frequency.setValueAtTime(freq, t0);
+        if (slide) o.frequency.exponentialRampToValueAtTime(slide, t0 + dur);
+        g.gain.setValueAtTime(vol || 0.07, t0);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        o.connect(g);
+        g.connect(this.ctx.destination);
+        o.start(t0);
+        o.stop(t0 + dur + 0.02);
+    },
+
+    noise: function (dur, vol) {
+        if (this.muted || !this.ctx) return;
+        const n = Math.floor(this.ctx.sampleRate * dur);
+        const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const g = this.ctx.createGain();
+        g.gain.value = vol || 0.1;
+        src.connect(g);
+        g.connect(this.ctx.destination);
+        src.start();
+    },
+
+    jump: function () { this.tone(300, 0.12, 'square', 0.045, 520); },
+    land: function () { this.noise(0.05, 0.06); },
+    smash: function () { this.noise(0.18, 0.15); this.tone(160, 0.16, 'sawtooth', 0.05, 60); },
+    shout: function () { this.tone(150, 0.3, 'sawtooth', 0.08, 95); },
+    over: function () {
+        const s = this;
+        s.tone(330, 0.25, 'triangle', 0.08, 220);
+        setTimeout(function () { s.tone(220, 0.4, 'triangle', 0.08, 150); }, 200);
+    },
+    best: function () {
+        const s = this;
+        [523, 659, 784].forEach(function (f, i) {
+            setTimeout(function () { s.tone(f, 0.18, 'triangle', 0.07); }, i * 120);
+        });
+    },
+
+    toggleMute: function () {
+        this.muted = !this.muted;
+        localStorage.setItem('office-break-muted', this.muted ? '1' : '0');
+        document.getElementById('mute-btn').textContent = this.muted ? '🔇' : '🔊';
+    }
+};
+
 /* --------------------------------------------------------------------------
    Configuration
    -------------------------------------------------------------------------- */
@@ -251,6 +334,13 @@ function boot() {
     document.getElementById('start-btn').addEventListener('click', startGame);
     document.getElementById('restart-btn').addEventListener('click', startGame);
     document.getElementById('resume-btn').addEventListener('click', togglePause);
+
+    Sound.muted = localStorage.getItem('office-break-muted') === '1';
+    document.getElementById('mute-btn').textContent = Sound.muted ? '🔇' : '🔊';
+    document.getElementById('mute-btn').addEventListener('click', function () {
+        Sound.ensure();
+        Sound.toggleMute();
+    });
 }
 
 /* --------------------------------------------------------------------------
@@ -282,6 +372,10 @@ function setupInput() {
         }
         if (e.code === 'KeyR' && !e.repeat) {
             startGame();
+            return;
+        }
+        if (e.code === 'KeyM' && !e.repeat) {
+            Sound.toggleMute();
             return;
         }
         if (state.paused) return;
@@ -348,9 +442,12 @@ function startGame() {
     document.getElementById('game-over').classList.add('hidden');
     document.getElementById('pause-overlay').classList.add('hidden');
 
+    Sound.ensure();
     state.running = true;
     state.gameOver = false;
     state.paused = false;
+    state.stats = { hops: 0, smashed: 0 };
+    state.lastMilestone = 0;
     state.startTime = performance.now();
     state.lastFrame = performance.now();
     state.scrollSpeed = CONFIG.SCROLL_SPEED_START;
@@ -444,9 +541,12 @@ function endGame(reason) {
         localStorage.setItem('office-break-best', String(final));
         document.getElementById('best').textContent = final;
     }
+    if (isNewBest) { Sound.best(); } else { Sound.over(); }
     document.getElementById('new-best').classList.toggle('hidden', !isNewBest);
     document.getElementById('game-over-reason').textContent = reason;
     document.getElementById('final-score').textContent = final;
+    document.getElementById('go-stats').textContent =
+        state.stats.hops + ' messages hopped · ' + state.stats.smashed + ' smashed by the boss';
     document.getElementById('game-over').classList.remove('hidden');
 }
 
@@ -626,6 +726,12 @@ function smashMessage(index) {
     state.messages.splice(index, 1);
     state.shake = 9;
     haptic(30);
+    Sound.smash();
+    if (state.stats) state.stats.smashed++;
+    if (state.boss && Math.random() < 0.35) {
+        state.boss.quote = pick(BOSS_QUOTES);
+        state.boss.quoteUntil = performance.now() + 1200;
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -719,6 +825,7 @@ function updatePlayer(t) {
     if (p.jumpBuffer > 0) {
         if (p.grounded || p.coyote > 0) {
             p.vy = CONFIG.JUMP_VELOCITY;
+            Sound.jump();
             spawnDust(p.x + p.w / 2, p.y + p.h, 3);
             p.grounded = false;
             p.platform = null;
@@ -743,6 +850,11 @@ function updatePlayer(t) {
                     if (p.vy > 6) {
                         p.squash = clamp(p.vy, 6, 14);
                         spawnDust(p.x + p.w / 2, m.y, 5);
+                        Sound.land();
+                    }
+                    if (m !== p.lastLanding) {
+                        p.lastLanding = m;
+                        state.stats.hops++;
                     }
                     p.y = m.y - p.h;
                     p.vy = 0;
@@ -783,6 +895,7 @@ function updateBoss(t, now, elapsedSec) {
         if (now - state.startTime > CONFIG.BOSS_DELAY_MS) {
             b.chasing = true;
             b.shoutUntil = now + CONFIG.BOSS_SHOUT_MS;
+            Sound.shout();
         }
         return;
     }
@@ -1361,6 +1474,23 @@ function drawBoss(now) {
 
     ctx.restore();
 
+    // Quick one-liner when he smashes something
+    if (b.quote && now < b.quoteUntil && !(b.chasing && now < b.shoutUntil)) {
+        ctx.font = 'bold 11px "Segoe UI", sans-serif';
+        const qw = ctx.measureText(b.quote).width;
+        const qx = clamp(b.x + b.w / 2 - qw / 2 - 8, 6, state.W - qw - 22);
+        const qy = b.y - 26;
+        roundRect(ctx, qx, qy, qw + 16, 20, 9);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.strokeStyle = '#c4314b';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.fillStyle = '#c4314b';
+        ctx.textAlign = 'left';
+        ctx.fillText(b.quote, qx + 8, qy + 14);
+    }
+
     // Shout bubble when the chase begins
     if (b.chasing && now < b.shoutUntil) {
         const text = 'GET BACK TO WORK!';
@@ -1487,6 +1617,21 @@ function draw(now) {
 }
 
 /* --------------------------------------------------------------------------
+   Toasts — Teams-style notification cards, top-right of the chat
+   -------------------------------------------------------------------------- */
+
+let toastTimer = null;
+
+function showToast(title, body) {
+    const el = document.getElementById('toast');
+    document.getElementById('toast-title').textContent = title;
+    document.getElementById('toast-body').textContent = body;
+    el.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2400);
+}
+
+/* --------------------------------------------------------------------------
    Main loop
    -------------------------------------------------------------------------- */
 
@@ -1511,6 +1656,12 @@ function gameLoop(now) {
 
     state.score = elapsedSec * CONFIG.POINTS_PER_SECOND;
     document.getElementById('score').textContent = Math.floor(state.score);
+
+    const milestone = Math.floor(state.score / 250);
+    if (milestone > state.lastMilestone) {
+        state.lastMilestone = milestone;
+        showToast('\ud83c\udfc6 ' + (milestone * 250) + ' points', pick(MILESTONE_FLAVOR));
+    }
 
     draw(now);
 

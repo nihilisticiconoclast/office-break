@@ -274,8 +274,46 @@ html, body {
 .chat-tabs .tab { cursor: pointer; padding-bottom: 2px; }
 .chat-tabs .tab.active { color: var(--teams-purple); font-weight: 600; border-bottom: 2px solid var(--teams-purple); }
 
-#score-box { display: flex; gap: 16px; font-size: 13px; color: var(--text-secondary); }
+#score-box { display: flex; gap: 16px; font-size: 13px; color: var(--text-secondary); align-items: center; }
 #score-box strong { color: var(--teams-purple); font-size: 16px; }
+
+#mute-btn {
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+#mute-btn:hover { background: #f0f0f0; }
+
+/* Teams-style notification toast */
+
+#toast {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 6;
+    display: flex;
+    background: #fff;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+    min-width: 200px;
+    transform: translateX(120%);
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    pointer-events: none;
+}
+
+#toast.show { transform: translateX(0); opacity: 1; }
+
+.toast-accent { width: 4px; background: var(--teams-purple); }
+
+.toast-text { padding: 10px 14px; }
+
+#toast-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+#toast-body { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 
 /* Chat area / game canvas */
 
