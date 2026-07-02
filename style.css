@@ -407,6 +407,7 @@ kbd {
 .primary-btn:hover { background: var(--teams-purple-dark); }
 
 #game-over-reason { color: var(--busy); font-weight: 600; margin: 0 0 6px; }
+.new-best { color: var(--online); font-weight: 700; margin: 0 0 6px; }
 .dialog .final { font-size: 18px; margin: 0 0 20px; }
 .dialog .final strong { color: var(--teams-purple); }
 .dialog .hint { font-size: 12px; color: var(--text-secondary); margin: 12px 0 0; }

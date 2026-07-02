@@ -97,13 +97,15 @@ const CONFIG = {
     MOVE_SPEED: 5.2,
     MOVE_ACCEL: 0.9,
     FRICTION: 0.72,
+    COYOTE_FRAMES: 7,            // jump grace after walking off an edge
+    JUMP_BUFFER_FRAMES: 8,       // press jump slightly before landing and it still counts
 
     SCROLL_SPEED_START: 0.75,
     SCROLL_SPEED_MAX: 2.6,
     SCROLL_RAMP: 0.009,          // speed gained per second of survival
 
-    SPAWN_GAP_MIN: 85,           // vertical px scrolled between message spawns
-    SPAWN_GAP_MAX: 130,
+    SPAWN_AIR_MIN: 30,           // clear air between one message's bottom and the next one's top
+    SPAWN_AIR_MAX: 78,
 
     SPAWN_DEPTH_BOOST: 0.9,      // up to +90% spawn rate when player is near the bottom
     SPAWN_TIME_SHRINK: 0.0015,   // spawn gaps shrink by this fraction per second
@@ -135,11 +137,12 @@ const state = {
 
     running: false,
     gameOver: false,
+    paused: false,
+    pausedAt: 0,
     startTime: 0,
     lastFrame: 0,
     scrollSpeed: CONFIG.SCROLL_SPEED_START,
-    scrolledSinceSpawn: 0,
-    nextSpawnGap: 120,
+    nextSpawnGap: 50,
     score: 0,
     best: 0,
     shake: 0,
@@ -195,8 +198,13 @@ function rotateTypingIndicator() {
 
 function resizeCanvas() {
     const area = document.getElementById('chat-area');
-    state.W = state.canvas.width = area.clientWidth;
-    state.H = state.canvas.height = area.clientHeight;
+    // Render at device resolution so text stays crisp on retina/mobile,
+    // while all game logic keeps working in CSS pixels.
+    state.dpr = window.devicePixelRatio || 1;
+    state.W = area.clientWidth;
+    state.H = area.clientHeight;
+    state.canvas.width = Math.round(state.W * state.dpr);
+    state.canvas.height = Math.round(state.H * state.dpr);
 }
 
 function boot() {
@@ -213,6 +221,7 @@ function boot() {
 
     document.getElementById('start-btn').addEventListener('click', startGame);
     document.getElementById('restart-btn').addEventListener('click', startGame);
+    document.getElementById('resume-btn').addEventListener('click', togglePause);
 }
 
 /* --------------------------------------------------------------------------
@@ -231,16 +240,32 @@ function setupInput() {
             // Brief lockout so mashing jump at the moment of death doesn't
             // instantly restart the run.
             const settled = performance.now() - state.gameOverAt > 600;
-            if (startVisible || (overVisible && settled && (e.code === 'Space' || e.code === 'Enter'))) {
+            if (startVisible || (overVisible && settled &&
+                (e.code === 'Space' || e.code === 'Enter' || e.code === 'KeyR'))) {
                 startGame();
             }
             return;
         }
 
+        if ((e.code === 'KeyP' || e.code === 'Escape') && !e.repeat) {
+            togglePause();
+            return;
+        }
+        if (e.code === 'KeyR' && !e.repeat) {
+            startGame();
+            return;
+        }
+        if (state.paused) return;
+
         state.keys[e.code] = true;
         if ((e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') && !e.repeat) {
             state.jumpQueued = true;
         }
+    });
+
+    // Auto-pause when the window loses focus (meeting incoming, probably)
+    window.addEventListener('blur', function () {
+        if (state.running && !state.paused) togglePause();
     });
 
     document.addEventListener('keyup', function (e) {
@@ -255,14 +280,15 @@ function setupInput() {
 function startGame() {
     document.getElementById('start-overlay').classList.add('hidden');
     document.getElementById('game-over').classList.add('hidden');
+    document.getElementById('pause-overlay').classList.add('hidden');
 
     state.running = true;
     state.gameOver = false;
+    state.paused = false;
     state.startTime = performance.now();
     state.lastFrame = performance.now();
     state.scrollSpeed = CONFIG.SCROLL_SPEED_START;
-    state.scrolledSinceSpawn = 0;
-    state.nextSpawnGap = randRange(CONFIG.SPAWN_GAP_MIN, CONFIG.SPAWN_GAP_MAX);
+    state.nextSpawnGap = randRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
     state.score = 0;
     state.shake = 0;
     state.keys = {};
@@ -277,7 +303,10 @@ function startGame() {
         facing: 1,
         grounded: false,
         platform: null,
-        animPhase: 0
+        animPhase: 0,
+        coyote: 0,
+        jumpBuffer: 0,
+        squash: 0
     };
 
     state.boss = {
@@ -308,13 +337,33 @@ function startGame() {
     state.player.grounded = true;
     state.player.platform = first;
 
-    let y = startY + randRange(CONFIG.SPAWN_GAP_MIN, CONFIG.SPAWN_GAP_MAX);
+    let y = first.y + first.h + randRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
     while (y < state.H + 60) {
-        state.messages.push(createMessage(y));
-        y += randRange(CONFIG.SPAWN_GAP_MIN, CONFIG.SPAWN_GAP_MAX);
+        const m = createMessage(y);
+        state.messages.push(m);
+        y = m.y + m.h + randRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
     }
 
-    requestAnimationFrame(gameLoop);
+    if (state.rafId) cancelAnimationFrame(state.rafId);
+    state.rafId = requestAnimationFrame(gameLoop);
+}
+
+function togglePause() {
+    if (!state.running) return;
+    if (!state.paused) {
+        state.paused = true;
+        state.pausedAt = performance.now();
+        state.keys = {};
+        document.getElementById('pause-overlay').classList.remove('hidden');
+    } else {
+        // Shift every wall-clock anchor forward so the pause doesn't count
+        const delta = performance.now() - state.pausedAt;
+        state.startTime += delta;
+        state.boss.shoutUntil += delta;
+        state.lastFrame = performance.now();
+        state.paused = false;
+        document.getElementById('pause-overlay').classList.add('hidden');
+    }
 }
 
 function endGame(reason) {
@@ -322,11 +371,13 @@ function endGame(reason) {
     state.gameOver = true;
     state.gameOverAt = performance.now();
     const final = Math.floor(state.score);
+    const isNewBest = final > state.best && state.best > 0;
     if (final > state.best) {
         state.best = final;
         localStorage.setItem('office-break-best', String(final));
         document.getElementById('best').textContent = final;
     }
+    document.getElementById('new-best').classList.toggle('hidden', !isNewBest);
     document.getElementById('game-over-reason').textContent = reason;
     document.getElementById('final-score').textContent = final;
     document.getElementById('game-over').classList.remove('hidden');
@@ -496,15 +547,19 @@ function updateWorld(t, elapsedSec) {
         state.messages[i].y -= scroll;
     }
 
-    // Spawn new messages from the bottom as distance accumulates. The rate
-    // rises the deeper the player pushes (more platforms where they're
-    // needed) and the gaps themselves shrink slowly over time.
+    // Spawn a new message once the previous one's bottom edge has scrolled
+    // far enough up to leave clear air beneath it — messages never overlap,
+    // whatever their height. The required air shrinks the deeper the player
+    // pushes (more platforms where they're needed) and slowly over time.
     const depth = clamp((state.player.y + state.player.h) / state.H, 0, 1);
     const timeShrink = Math.max(CONFIG.SPAWN_SHRINK_FLOOR, 1 - elapsedSec * CONFIG.SPAWN_TIME_SHRINK);
-    state.scrolledSinceSpawn += scroll * (1 + depth * CONFIG.SPAWN_DEPTH_BOOST) / timeShrink;
-    if (state.scrolledSinceSpawn >= state.nextSpawnGap) {
-        state.scrolledSinceSpawn = 0;
-        state.nextSpawnGap = randRange(CONFIG.SPAWN_GAP_MIN, CONFIG.SPAWN_GAP_MAX);
+    let lowestBottom = -Infinity;
+    for (let i = 0; i < state.messages.length; i++) {
+        lowestBottom = Math.max(lowestBottom, state.messages[i].y + state.messages[i].h);
+    }
+    const airNeeded = state.nextSpawnGap * timeShrink / (1 + depth * CONFIG.SPAWN_DEPTH_BOOST);
+    if (lowestBottom + airNeeded <= state.H + 12) {
+        state.nextSpawnGap = randRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
         spawnFromBottom();
     }
 
@@ -544,16 +599,27 @@ function updatePlayer(t) {
         } else {
             p.grounded = false;
             p.platform = null;
+            p.coyote = CONFIG.COYOTE_FRAMES;   // brief grace to still jump
         }
+    } else if (p.coyote > 0) {
+        p.coyote -= t;
     }
 
-    // Jump
+    // Jump — buffered, with coyote grace
     if (state.jumpQueued) {
         state.jumpQueued = false;
-        if (p.grounded) {
+        p.jumpBuffer = CONFIG.JUMP_BUFFER_FRAMES;
+    }
+    if (p.jumpBuffer > 0) {
+        if (p.grounded || p.coyote > 0) {
             p.vy = CONFIG.JUMP_VELOCITY;
+            spawnDust(p.x + p.w / 2, p.y + p.h, 3);
             p.grounded = false;
             p.platform = null;
+            p.coyote = 0;
+            p.jumpBuffer = 0;
+        } else {
+            p.jumpBuffer -= t;
         }
     }
 
@@ -568,15 +634,21 @@ function updatePlayer(t) {
                 const m = state.messages[i];
                 if (p.x + p.w > m.x + 2 && p.x < m.x + m.w - 2 &&
                     prevBottom <= m.prevY + 1 && newBottom >= m.y - 1) {
+                    if (p.vy > 6) {
+                        p.squash = clamp(p.vy, 6, 14);
+                        spawnDust(p.x + p.w / 2, m.y, 5);
+                    }
                     p.y = m.y - p.h;
                     p.vy = 0;
                     p.grounded = true;
                     p.platform = m;
+                    p.coyote = 0;
                     break;
                 }
             }
         }
     }
+    if (p.squash > 0) p.squash -= t * 1.5;
 
     // Run-cycle animation
     if (p.grounded && Math.abs(p.vx) > 0.4) {
@@ -763,14 +835,31 @@ function checkBossCatch() {
     }
 }
 
+function spawnDust(x, y, n) {
+    for (let i = 0; i < n; i++) {
+        state.particles.push({
+            x: x + (Math.random() - 0.5) * 16,
+            y: y - 2,
+            vx: (Math.random() - 0.5) * 2.4,
+            vy: -Math.random() * 1.4,
+            size: 2 + Math.random() * 3,
+            rot: Math.random() * Math.PI,
+            vr: (Math.random() - 0.5) * 0.2,
+            life: 0.7,
+            color: '#c9c9c9',
+            dust: true
+        });
+    }
+}
+
 function updateParticles(t) {
     for (let i = state.particles.length - 1; i >= 0; i--) {
         const pt = state.particles[i];
         pt.x += pt.vx * t;
         pt.y += pt.vy * t;
-        pt.vy += 0.25 * t;
+        pt.vy += (pt.dust ? 0.05 : 0.25) * t;
         pt.rot += pt.vr * t;
-        pt.life -= 0.025 * t;
+        pt.life -= (pt.dust ? 0.045 : 0.025) * t;
         if (pt.life <= 0) state.particles.splice(i, 1);
     }
 }
@@ -789,21 +878,20 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.closePath();
 }
 
-function drawMessage(m) {
-    const ctx = state.ctx;
+function paintMessage(ctx, m, x, y) {
     const pad = 12;
 
     // Avatar (decorative — the bubble is the platform)
     if (!m.own) {
         ctx.fillStyle = m.sender.color;
         ctx.beginPath();
-        ctx.arc(m.x - 22, m.y + 16, 14, 0, Math.PI * 2);
+        ctx.arc(x - 22, y + 16, 14, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 10px "Segoe UI", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(initials(m.sender.name), m.x - 22, m.y + 17);
+        ctx.fillText(initials(m.sender.name), x - 22, y + 17);
     }
 
     // Bubble
@@ -812,7 +900,7 @@ function drawMessage(m) {
     ctx.shadowBlur = 4;
     ctx.shadowOffsetY = 1;
     ctx.fillStyle = m.own ? '#e8ebfa' : '#ffffff';
-    roundRect(ctx, m.x, m.y, m.w, m.h, 6);
+    roundRect(ctx, x, y, m.w, m.h, 6);
     ctx.fill();
     ctx.restore();
 
@@ -823,52 +911,52 @@ function drawMessage(m) {
     if (m.own) {
         ctx.font = '11px "Segoe UI", sans-serif';
         ctx.fillStyle = '#8a8a8a';
-        ctx.fillText(m.time, m.x + pad, m.y + pad + 8);
+        ctx.fillText(m.time, x + pad, y + pad + 8);
     } else {
         ctx.font = 'bold 12px "Segoe UI", sans-serif';
         ctx.fillStyle = '#424242';
-        ctx.fillText(m.sender.name, m.x + pad, m.y + pad + 8);
+        ctx.fillText(m.sender.name, x + pad, y + pad + 8);
         const nameW = ctx.measureText(m.sender.name).width;
         ctx.font = '11px "Segoe UI", sans-serif';
         ctx.fillStyle = '#8a8a8a';
-        ctx.fillText(m.time, m.x + pad + nameW + 8, m.y + pad + 8);
+        ctx.fillText(m.time, x + pad + nameW + 8, y + pad + 8);
     }
 
     // Body text
     ctx.font = '14px "Segoe UI", sans-serif';
     ctx.fillStyle = '#242424';
     for (let i = 0; i < m.lines.length; i++) {
-        ctx.fillText(m.lines[i], m.x + pad, m.y + pad + 26 + i * 18);
+        ctx.fillText(m.lines[i], x + pad, y + pad + 26 + i * 18);
     }
 
     // Media block
     if (m.type !== 'text') {
-        const my = m.y + pad + 16 + m.lines.length * 18 + 4;
+        const my = y + pad + 16 + m.lines.length * 18 + 4;
         const mw = m.mediaW;
 
         if (m.type === 'gif') {
-            const grad = ctx.createLinearGradient(m.x + pad, my, m.x + pad + mw, my + m.mediaH);
+            const grad = ctx.createLinearGradient(x + pad, my, x + pad + mw, my + m.mediaH);
             grad.addColorStop(0, 'hsl(' + m.gifHue + ', 70%, 62%)');
             grad.addColorStop(1, 'hsl(' + ((m.gifHue + 70) % 360) + ', 70%, 48%)');
-            roundRect(ctx, m.x + pad, my, mw, m.mediaH, 4);
+            roundRect(ctx, x + pad, my, mw, m.mediaH, 4);
             ctx.fillStyle = grad;
             ctx.fill();
             // Little sparkle
             ctx.fillStyle = 'rgba(255,255,255,0.85)';
             ctx.font = '22px "Segoe UI", sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('✦', m.x + pad + mw / 2, my + m.mediaH / 2 + 8);
+            ctx.fillText('✦', x + pad + mw / 2, my + m.mediaH / 2 + 8);
             ctx.textAlign = 'left';
             // GIF badge
             ctx.fillStyle = 'rgba(0,0,0,0.55)';
-            roundRect(ctx, m.x + pad + 6, my + m.mediaH - 22, 34, 16, 3);
+            roundRect(ctx, x + pad + 6, my + m.mediaH - 22, 34, 16, 3);
             ctx.fill();
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 10px "Segoe UI", sans-serif';
-            ctx.fillText('GIF', m.x + pad + 14, my + m.mediaH - 10);
+            ctx.fillText('GIF', x + pad + 14, my + m.mediaH - 10);
         } else {
             // Chart card
-            roundRect(ctx, m.x + pad, my, mw, m.mediaH, 4);
+            roundRect(ctx, x + pad, my, mw, m.mediaH, 4);
             ctx.fillStyle = '#fafafa';
             ctx.fill();
             ctx.strokeStyle = '#e1e1e1';
@@ -878,13 +966,38 @@ function drawMessage(m) {
             for (let i = 0; i < m.bars.length; i++) {
                 const bh = m.bars[i] * (m.mediaH - 22);
                 ctx.fillStyle = i % 2 === 0 ? '#6264a7' : '#9ea2d0';
-                ctx.fillRect(m.x + pad + 14 + i * (barW + 6), my + m.mediaH - 8 - bh, barW, bh);
+                ctx.fillRect(x + pad + 14 + i * (barW + 6), my + m.mediaH - 8 - bh, barW, bh);
             }
             ctx.fillStyle = '#8a8a8a';
             ctx.font = '9px "Segoe UI", sans-serif';
-            ctx.fillText('📊 ' + '▸', m.x + pad + mw - 24, my + 14);
+            ctx.fillText('📊 ' + '▸', x + pad + mw - 24, my + 14);
         }
     }
+}
+
+// Each bubble is rendered once into an offscreen canvas at creation time,
+// then blitted per frame — much cheaper than re-laying-out text and shadows
+// sixty times a second, especially on mobile.
+const CACHE_PAD_L = 44, CACHE_PAD_T = 8, CACHE_PAD_R = 10, CACHE_PAD_B = 12;
+
+function renderMessageCache(m) {
+    const cw = m.w + CACHE_PAD_L + CACHE_PAD_R;
+    const ch = m.h + CACHE_PAD_T + CACHE_PAD_B;
+    const dpr = state.dpr || 1;
+    const cnv = document.createElement('canvas');
+    cnv.width = Math.ceil(cw * dpr);
+    cnv.height = Math.ceil(ch * dpr);
+    const cctx = cnv.getContext('2d');
+    cctx.scale(dpr, dpr);
+    paintMessage(cctx, m, CACHE_PAD_L, CACHE_PAD_T);
+    m.cacheW = cw;
+    m.cacheH = ch;
+    return cnv;
+}
+
+function drawMessage(m) {
+    if (!m.cache) m.cache = renderMessageCache(m);
+    state.ctx.drawImage(m.cache, m.x - CACHE_PAD_L, m.y - CACHE_PAD_T, m.cacheW, m.cacheH);
 }
 
 function drawPlayer() {
@@ -896,6 +1009,13 @@ function drawPlayer() {
     ctx.save();
     ctx.translate(p.x + p.w / 2, p.y);
     if (p.facing < 0) ctx.scale(-1, 1);
+    if (p.squash > 0) {
+        // Squash on landing, anchored at the feet
+        const s = p.squash * 0.014;
+        ctx.translate(0, p.h);
+        ctx.scale(1 + s, 1 - s);
+        ctx.translate(0, -p.h);
+    }
 
     ctx.lineCap = 'round';
 
@@ -1142,6 +1262,19 @@ function drawCountdown(now) {
     }
 }
 
+function drawDangerVignette() {
+    // Red glow bleeding in from the top as the scroll pulls you toward the
+    // archive — the closer you are, the hotter it gets.
+    const p = state.player;
+    if (!p || p.y > 110) return;
+    const a = clamp((110 - p.y) / 110, 0, 1) * 0.32;
+    const g = state.ctx.createLinearGradient(0, 0, 0, 90);
+    g.addColorStop(0, 'rgba(196,49,75,' + a + ')');
+    g.addColorStop(1, 'rgba(196,49,75,0)');
+    state.ctx.fillStyle = g;
+    state.ctx.fillRect(0, 0, state.W, 90);
+}
+
 function drawBossIndicator() {
     const b = state.boss;
     if (!b.chasing) return;
@@ -1177,7 +1310,7 @@ function drawBossIndicator() {
 
 function draw(now) {
     const ctx = state.ctx;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
     ctx.clearRect(0, 0, state.W, state.H);
 
     // Screen shake when the boss smashes something
@@ -1195,6 +1328,7 @@ function draw(now) {
     drawParticles();
     drawPlayer();
     drawBoss(now);
+    drawDangerVignette();
     drawCountdown(now);
     drawBossIndicator();
 }
@@ -1205,6 +1339,11 @@ function draw(now) {
 
 function gameLoop(now) {
     if (!state.running) return;
+    if (state.paused) {
+        state.lastFrame = now;
+        state.rafId = requestAnimationFrame(gameLoop);
+        return;
+    }
 
     // Normalize to 60fps units so speed is framerate-independent; cap the
     // step so a background tab doesn't teleport everything on return.
@@ -1222,7 +1361,7 @@ function gameLoop(now) {
 
     draw(now);
 
-    if (state.running) requestAnimationFrame(gameLoop);
+    if (state.running) state.rafId = requestAnimationFrame(gameLoop);
 }
 
 window.addEventListener('load', boot);
