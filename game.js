@@ -268,6 +268,43 @@ function setupInput() {
         if (state.running && !state.paused) togglePause();
     });
 
+    setupTouchControls();
+}
+
+function setupTouchControls() {
+    function bind(id, down, up) {
+        const el = document.getElementById(id);
+        el.addEventListener('pointerdown', function (e) {
+            e.preventDefault();
+            try { el.setPointerCapture(e.pointerId); } catch (err) { /* no-op */ }
+            down();
+        });
+        ['pointerup', 'pointercancel'].forEach(function (ev) {
+            el.addEventListener(ev, function (e) {
+                e.preventDefault();
+                if (up) up();
+            });
+        });
+        el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    }
+
+    bind('tc-left',
+        function () { state.keys.ArrowLeft = true; },
+        function () { state.keys.ArrowLeft = false; });
+    bind('tc-right',
+        function () { state.keys.ArrowRight = true; },
+        function () { state.keys.ArrowRight = false; });
+    bind('tc-jump',
+        function () { if (state.running && !state.paused) state.jumpQueued = true; },
+        null);
+}
+
+// A tiny buzz on Android when something breaks; silently ignored elsewhere
+function haptic(ms) {
+    if (navigator.vibrate) {
+        try { navigator.vibrate(ms); } catch (err) { /* no-op */ }
+    }
+
     document.addEventListener('keyup', function (e) {
         state.keys[e.code] = false;
     });

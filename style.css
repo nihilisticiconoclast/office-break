@@ -26,6 +26,8 @@ html, body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     overflow: hidden;
     user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
     background: var(--teams-purple-darker);
 }
 
@@ -33,6 +35,7 @@ html, body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;   /* mobile browsers: track the real visible viewport */
 }
 
 /* --------------------------------------------------------------------------
@@ -73,6 +76,14 @@ html, body {
     padding: 0 12px;
     color: #d0d0e8;
     font-size: 13px;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.search-placeholder {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .titlebar-right { width: 180px; display: flex; justify-content: flex-end; }
@@ -279,7 +290,49 @@ html, body {
     display: block;
     width: 100%;
     height: 100%;
+    touch-action: none;
 }
+
+/* Touch controls — shown only on coarse-pointer (touch) devices */
+
+#touch-controls {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0 16px 16px;
+    justify-content: space-between;
+    align-items: flex-end;
+    z-index: 5;
+    pointer-events: none;
+}
+
+@media (pointer: coarse) {
+    #touch-controls { display: flex; }
+}
+
+.tc-move { display: flex; gap: 14px; }
+
+.tc-btn {
+    pointer-events: auto;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(98, 100, 167, 0.35);
+    color: #fff;
+    font-size: 24px;
+    font-family: inherit;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.tc-btn:active { background: rgba(98, 100, 167, 0.65); }
+
+.tc-jump { width: 76px; height: 76px; font-size: 30px; }
 
 /* Composer */
 
@@ -418,3 +471,16 @@ kbd {
 
 @media (max-width: 960px) { #sidebar { display: none; } }
 @media (max-width: 640px)  { #rail { display: none; } }
+
+/* Compact chrome on small phones so the game gets the room */
+@media (max-width: 640px), (max-height: 500px) {
+    #titlebar { height: 38px; }
+    .titlebar-search { height: 24px; font-size: 12px; }
+    #chat-header { height: 48px; padding: 0 12px; }
+    .chat-tabs { display: none; }
+    .channel-avatar { width: 28px; height: 28px; }
+    #composer { padding: 2px 12px 8px; }
+    .composer-box { padding: 6px 10px; }
+    .composer-icons { display: none; }
+    .dialog { padding: 22px 24px; max-width: 90vw; }
+}
