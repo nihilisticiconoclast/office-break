@@ -77,6 +77,35 @@ const GIF_CAPTIONS = [
     'happy Friday everyone!!'
 ];
 
+const URGENT_MESSAGES = [
+    'URGENT: prod is down!!',
+    'Client escalation — need eyes NOW',
+    'Where are you?? The demo started',
+    'CEO is asking about the numbers',
+    'Need this in the next 5 minutes',
+    'Call me. Now.',
+    'The printer is on fire (not a drill)',
+    'Legal needs a response ASAP'
+];
+
+const MEETING_TITLES = [
+    'Q3 Sync (mandatory)',
+    '1:1 with your manager',
+    'Sprint Retro — no escape',
+    'All Hands: Exciting Updates',
+    'Pre-planning for the planning meeting',
+    'Performance Review',
+    'Emergency standup',
+    'Workshop: Synergy Alignment'
+];
+
+const MEETING_TIMES = [
+    'Today 3:00 PM – 3:30 PM',
+    'Tomorrow 9:00 AM – 11:00 AM',
+    'Friday 4:30 PM – 5:00 PM',
+    'Today 12:00 PM (yes, lunch)'
+];
+
 const CHART_TITLES = [
     'Q3 Revenue Projections.xlsx',
     'Customer Satisfaction Scores',
@@ -407,6 +436,7 @@ function endGame(reason) {
     state.running = false;
     state.gameOver = true;
     state.gameOverAt = performance.now();
+    haptic(120);
     const final = Math.floor(state.score);
     const isNewBest = final > state.best && state.best > 0;
     if (final > state.best) {
@@ -446,15 +476,21 @@ function pickMessageContent(own) {
         if (roll < 0.85) return { type: 'text', size: 'medium', text: pick(CORPORATE_PHRASES) };
         return { type: 'gif', size: 'media', text: pick(GIF_CAPTIONS) };
     }
-    if (roll < 0.28) return { type: 'text', size: 'short', text: pick(SHORT_REPLIES) };
-    if (roll < 0.60) return { type: 'text', size: 'medium', text: pick(CORPORATE_PHRASES) };
-    if (roll < 0.78) {
+    if (roll < 0.24) return { type: 'text', size: 'short', text: pick(SHORT_REPLIES) };
+    if (roll < 0.52) return { type: 'text', size: 'medium', text: pick(CORPORATE_PHRASES) };
+    if (roll < 0.68) {
         let text = pick(CORPORATE_PHRASES) + '. ' + pick(CORPORATE_PHRASES);
         if (Math.random() < 0.35) text += '. ' + pick(CORPORATE_PHRASES);
         return { type: 'text', size: 'long', text: text };
     }
-    if (roll < 0.90) return { type: 'gif', size: 'media', text: pick(GIF_CAPTIONS) };
-    return { type: 'chart', size: 'media', text: pick(CHART_TITLES) };
+    if (roll < 0.80) return { type: 'gif', size: 'media', text: pick(GIF_CAPTIONS) };
+    if (roll < 0.88) return { type: 'chart', size: 'media', text: pick(CHART_TITLES) };
+    if (roll < 0.94) {
+        // Urgent messages rise through the chat faster than everything else
+        return { type: 'text', size: 'medium', text: pick(URGENT_MESSAGES), urgent: true };
+    }
+    // Meeting invites: wide card, the most generous platform in the game
+    return { type: 'invite', size: 'invite', text: pick(MEETING_TITLES), meetTime: pick(MEETING_TIMES) };
 }
 
 function wrapText(text, maxWidth, font) {
@@ -490,6 +526,27 @@ function createMessage(y) {
     const own = Math.random() < 0.28;
     const sender = own ? YOU : COLLEAGUES[Math.floor(Math.random() * COLLEAGUES.length)];
     const content = pickMessageContent(own);
+
+    // Meeting invites are their own wide-card layout
+    if (content.type === 'invite') {
+        const w = clamp(state.W * 0.6 + Math.random() * state.W * 0.12, 300, state.W * 0.8);
+        const h = 88;
+        const x = clamp(64 + Math.random() * Math.max(1, state.W - w - 100), 24, Math.max(24, state.W - w - 24));
+        return {
+            x: x, y: y, w: w, h: h, prevY: y,
+            sender: sender,
+            own: false,
+            type: 'invite',
+            lines: [content.text],
+            meetTime: content.meetTime,
+            time: gameClock(),
+            speedMult: 1,
+            mediaW: 0,
+            mediaH: 0,
+            gifHue: 0,
+            bars: []
+        };
+    }
 
     const bodyFont = '14px "Segoe UI", sans-serif';
     let maxTextWidth;
@@ -534,6 +591,8 @@ function createMessage(y) {
         sender: sender,
         own: own,
         type: content.type,
+        urgent: !!content.urgent,
+        speedMult: content.urgent ? 1.65 : 1,
         lines: lines,
         time: gameClock(),
         mediaW: mediaW,
@@ -566,6 +625,7 @@ function smashMessage(index) {
     }
     state.messages.splice(index, 1);
     state.shake = 9;
+    haptic(30);
 }
 
 /* --------------------------------------------------------------------------
@@ -577,11 +637,20 @@ function updateWorld(t, elapsedSec) {
     state.scrollSpeed = Math.min(CONFIG.SCROLL_SPEED_MAX,
         CONFIG.SCROLL_SPEED_START + elapsedSec * CONFIG.SCROLL_RAMP);
 
-    // Scroll every message upward
+    // Scroll every message upward. Urgent messages climb faster than the
+    // rest, but are clamped just beneath the message above them so nothing
+    // ever overlaps — they push up the queue, tailgating like they talk.
     const scroll = state.scrollSpeed * t;
+    state.messages.sort(function (a, b) { return a.y - b.y; });
+    let aboveBottom = -Infinity;
     for (let i = 0; i < state.messages.length; i++) {
-        state.messages[i].prevY = state.messages[i].y;
-        state.messages[i].y -= scroll;
+        const m = state.messages[i];
+        m.prevY = m.y;
+        m.y -= scroll * (m.speedMult || 1);
+        if ((m.speedMult || 1) > 1 && m.y < aboveBottom + 4) {
+            m.y = aboveBottom + 4;
+        }
+        aboveBottom = m.y + m.h;
     }
 
     // Spawn a new message once the previous one's bottom edge has scrolled
@@ -936,13 +1005,51 @@ function paintMessage(ctx, m, x, y) {
     ctx.shadowColor = 'rgba(0,0,0,0.10)';
     ctx.shadowBlur = 4;
     ctx.shadowOffsetY = 1;
-    ctx.fillStyle = m.own ? '#e8ebfa' : '#ffffff';
+    ctx.fillStyle = m.urgent ? '#fdf3f4' : (m.own ? '#e8ebfa' : '#ffffff');
     roundRect(ctx, x, y, m.w, m.h, 6);
     ctx.fill();
     ctx.restore();
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
+
+    // Meeting invite: wide calendar card with RSVP buttons
+    if (m.type === 'invite') {
+        ctx.fillStyle = '#6264a7';
+        ctx.fillRect(x, y + 5, 4, m.h - 10);
+        ctx.font = '18px "Segoe UI", sans-serif';
+        ctx.fillText('📅', x + pad, y + 26);
+        ctx.font = 'bold 13px "Segoe UI", sans-serif';
+        ctx.fillStyle = '#242424';
+        ctx.fillText(m.lines[0], x + pad + 28, y + 22);
+        ctx.font = '11px "Segoe UI", sans-serif';
+        ctx.fillStyle = '#616161';
+        ctx.fillText(m.sender.name + ' invited you · ' + m.time, x + pad + 28, y + 38);
+        ctx.fillStyle = '#8a8a8a';
+        ctx.fillText(m.meetTime, x + pad + 28, y + 52);
+        // Accept / Decline
+        roundRect(ctx, x + pad + 28, y + 60, 64, 20, 3);
+        ctx.fillStyle = '#6264a7';
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px "Segoe UI", sans-serif';
+        ctx.fillText('Accept', x + pad + 42, y + 74);
+        roundRect(ctx, x + pad + 100, y + 60, 64, 20, 3);
+        ctx.strokeStyle = '#c8c8c8';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#616161';
+        ctx.fillText('Decline', x + pad + 113, y + 74);
+        return;
+    }
+
+    // Urgent: red accent bar and bang, like an IMPORTANT! flag
+    if (m.urgent) {
+        ctx.fillStyle = '#c4314b';
+        ctx.fillRect(x, y + 5, 4, m.h - 10);
+        ctx.font = 'bold 13px "Segoe UI", sans-serif';
+        ctx.fillText('❗', x + m.w - 20, y + pad + 9);
+    }
 
     // Sender + timestamp (own messages show just the time, like Teams)
     if (m.own) {
@@ -951,7 +1058,7 @@ function paintMessage(ctx, m, x, y) {
         ctx.fillText(m.time, x + pad, y + pad + 8);
     } else {
         ctx.font = 'bold 12px "Segoe UI", sans-serif';
-        ctx.fillStyle = '#424242';
+        ctx.fillStyle = m.urgent ? '#c4314b' : '#424242';
         ctx.fillText(m.sender.name, x + pad, y + pad + 8);
         const nameW = ctx.measureText(m.sender.name).width;
         ctx.font = '11px "Segoe UI", sans-serif';
@@ -1035,6 +1142,15 @@ function renderMessageCache(m) {
 function drawMessage(m) {
     if (!m.cache) m.cache = renderMessageCache(m);
     state.ctx.drawImage(m.cache, m.x - CACHE_PAD_L, m.y - CACHE_PAD_T, m.cacheW, m.cacheH);
+    if (m.urgent) {
+        // Live pulsing outline so urgent messages read as urgent at a glance
+        const a = 0.4 + 0.3 * Math.sin(performance.now() / 170);
+        const ctx = state.ctx;
+        ctx.strokeStyle = 'rgba(196, 49, 75, ' + a + ')';
+        ctx.lineWidth = 2;
+        roundRect(ctx, m.x, m.y, m.w, m.h, 6);
+        ctx.stroke();
+    }
 }
 
 function drawPlayer() {
