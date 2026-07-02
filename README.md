@@ -29,8 +29,16 @@ python3 -m http.server 8000
 
 - Messages spawn at the bottom of the chat and scroll upward — standing still
   carries you toward the top. Keep jumping down onto lower messages.
-- After a short grace period, the **boss** starts chasing you and smashes any
-  message bubble he gets close to, destroying platforms.
+- After a short grace period, the **boss** drops into the chat. He plays by
+  the same rules you do: he runs along message bubbles, rides the scroll,
+  jumps, and smashes through the platform under his feet (after a raised-arms
+  telegraph) to descend after you. In the air he can barely steer, so a
+  falling boss can be sidestepped.
+- Outrun him downward and he gets carried off the top — a banner shows how
+  far behind he is (that's you winning). He rampages back down through the
+  messages, so he's never gone for good. Bait him off the bottom edge and
+  he's out of play for a few seconds while he takes the stairs.
+- Messages arrive faster the deeper you push and the longer you survive.
 - The game ends when:
   - the boss catches you,
   - you fall off the bottom of the chat, or
@@ -58,21 +66,31 @@ The page is laid out like a Teams client, built with plain HTML/CSS:
 
 Everything inside the chat area is rendered on the canvas each frame:
 
-- **Messages** are the platforms. Each one is a chat bubble with an avatar,
-  sender name, timestamp, and one of three content types: corporate-speak
-  text, a "GIF" (gradient card with a GIF badge), or an attached chart
-  (mini bar chart card). Bubble size derives from its content, so platform
-  widths vary naturally.
+- **Messages** are the platforms, laid out like a real Teams thread:
+  colleagues' messages anchor to the left edge (with avatar, name, and
+  timestamp), while *your* replies anchor to the right (tinted purple, time
+  only). Content comes in size classes — short quips ("+1", "lol") make
+  narrow ledges, single corporate phrases make medium bubbles, multi-phrase
+  rambles make wide floors, GIFs are chunky square cards, and charts are
+  mid-width attachment cards. The mix of alignment and size is what creates
+  the jumpable levels.
 - **Player** is a small humanoid (head, torso, arms, legs) with a running
   animation on the ground and a tucked pose in the air. Movement uses
   acceleration + friction; jumping uses simple gravity with one-way platform
   collision (you can jump up through bubbles and land on top of them).
   While standing on a bubble you ride it upward with the scroll.
 - **Boss** is a larger suited figure with a red tie and angry eyebrows. He
-  hovers at the top during the grace period, then homes in on the player,
-  smashing nearby messages into particle shards (with a little screen shake).
-- **Difficulty** ramps over time: scroll speed and boss speed both increase
-  as you survive.
+  waits at the top during the grace period, then drops in and chases under
+  the same platform physics as the player: gravity, one-way landings, and
+  riding the scroll. When you're below him he telegraphs (arms up), smashes
+  the bubble he's standing on into particle shards, and falls through after
+  you. If the scroll carries him off the top he enters a catch-up rampage
+  back down (rubber-banded to ~1.2 screens behind, with an on-screen
+  distance badge); if he falls off the bottom he's out of play briefly
+  before re-entering from the top.
+- **Difficulty** ramps over time: scroll speed and boss speed increase as
+  you survive, and message spawn gaps shrink both with elapsed time and
+  with how deep the player is holding.
 
 ### Code layout
 

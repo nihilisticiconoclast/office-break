@@ -60,6 +60,12 @@ const CORPORATE_PHRASES = [
     "Great energy in that meeting, team!"
 ];
 
+const SHORT_REPLIES = [
+    '+1', 'lol', 'sounds good', 'on it', 'ack', 'will do 👍', 'thanks!',
+    'same tbh', 'brb, coffee', 'any update?', 'bump', 'noted', '^ this',
+    'agreed', 'wait what', 'nice', '👀', 'yikes', 'ok ok ok', 'perfect'
+];
+
 const GIF_CAPTIONS = [
     'this is fine',
     'me waiting for the deploy',
@@ -99,12 +105,19 @@ const CONFIG = {
     SPAWN_GAP_MIN: 85,           // vertical px scrolled between message spawns
     SPAWN_GAP_MAX: 130,
 
+    SPAWN_DEPTH_BOOST: 0.9,      // up to +90% spawn rate when player is near the bottom
+    SPAWN_TIME_SHRINK: 0.0015,   // spawn gaps shrink by this fraction per second
+    SPAWN_SHRINK_FLOOR: 0.7,     // ...down to 70% of the base gap
+
     BOSS_DELAY_MS: 4000,         // grace period before the chase begins
-    BOSS_SPEED: 1.35,
-    BOSS_SPEED_MAX: 2.7,
-    BOSS_RAMP: 0.008,
-    BOSS_SMASH_RANGE: 120,
-    BOSS_SMASH_COOLDOWN: 75,     // frames
+    BOSS_RUN_SPEED: 2.2,         // ground speed at the start...
+    BOSS_RUN_MAX: 4.0,           // ...ramping up to this
+    BOSS_RAMP: 0.012,
+    BOSS_ACCEL: 0.5,
+    BOSS_WINDUP: 24,             // frames of raised-arms telegraph before a smash
+    BOSS_SMASH_COOLDOWN: 70,     // frames between smashes
+    BOSS_CATCHUP_EXTRA: 1.7,     // extra descent speed (over scroll) when off-screen above
+    BOSS_STAIRS_FRAMES: 160,     // time out of play after falling off the bottom
     BOSS_SHOUT_MS: 2600,
 
     POINTS_PER_SECOND: 10
@@ -130,7 +143,6 @@ const state = {
     score: 0,
     best: 0,
     shake: 0,
-    lastSpawnCX: 0,
     gameOverAt: 0,
 
     keys: {},
@@ -271,8 +283,14 @@ function startGame() {
     state.boss = {
         x: state.W * 0.15 - 23, y: -10,
         w: 46, h: 76,
+        vx: 0, vy: 0,
+        grounded: false,
+        platform: null,
+        mode: 'normal',          // 'normal' | 'catchup' (off-screen above) | 'stairs' (fell off)
         chasing: false,
-        speed: CONFIG.BOSS_SPEED,
+        runSpeed: CONFIG.BOSS_RUN_SPEED,
+        windup: 0,
+        stairsTimer: 0,
         smashCooldown: 0,
         smashPose: 0,
         shoutUntil: 0,
@@ -281,11 +299,9 @@ function startGame() {
 
     // Seed the screen with platforms: one right under the player, then a
     // trail of messages descending toward the bottom spawn zone.
-    state.lastSpawnCX = state.W / 2;
     const startY = state.H * 0.55;
     const first = createMessage(startY);
     first.x = clamp(state.W / 2 - first.w / 2, 20, state.W - first.w - 20);
-    state.lastSpawnCX = first.x + first.w / 2;
     state.messages.push(first);
     state.player.x = first.x + first.w / 2 - state.player.w / 2;
     state.player.y = first.y - state.player.h;
@@ -328,15 +344,29 @@ function clamp(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v));
 }
 
-function pickMessageContent() {
+function pick(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Size classes create the platform variety: short quips are narrow ledges,
+// long rambles are wide floors, GIFs are chunky square blocks. Your own
+// replies skew short (you're busy escaping).
+function pickMessageContent(own) {
     const roll = Math.random();
-    if (roll < 0.6) {
-        return { type: 'text', text: CORPORATE_PHRASES[Math.floor(Math.random() * CORPORATE_PHRASES.length)] };
+    if (own) {
+        if (roll < 0.55) return { type: 'text', size: 'short', text: pick(SHORT_REPLIES) };
+        if (roll < 0.85) return { type: 'text', size: 'medium', text: pick(CORPORATE_PHRASES) };
+        return { type: 'gif', size: 'media', text: pick(GIF_CAPTIONS) };
     }
-    if (roll < 0.8) {
-        return { type: 'gif', text: GIF_CAPTIONS[Math.floor(Math.random() * GIF_CAPTIONS.length)] };
+    if (roll < 0.28) return { type: 'text', size: 'short', text: pick(SHORT_REPLIES) };
+    if (roll < 0.60) return { type: 'text', size: 'medium', text: pick(CORPORATE_PHRASES) };
+    if (roll < 0.78) {
+        let text = pick(CORPORATE_PHRASES) + '. ' + pick(CORPORATE_PHRASES);
+        if (Math.random() < 0.35) text += '. ' + pick(CORPORATE_PHRASES);
+        return { type: 'text', size: 'long', text: text };
     }
-    return { type: 'chart', text: CHART_TITLES[Math.floor(Math.random() * CHART_TITLES.length)] };
+    if (roll < 0.90) return { type: 'gif', size: 'media', text: pick(GIF_CAPTIONS) };
+    return { type: 'chart', size: 'media', text: pick(CHART_TITLES) };
 }
 
 function wrapText(text, maxWidth, font) {
@@ -369,12 +399,17 @@ function gameClock() {
 }
 
 function createMessage(y) {
-    const own = Math.random() < 0.18;
+    const own = Math.random() < 0.28;
     const sender = own ? YOU : COLLEAGUES[Math.floor(Math.random() * COLLEAGUES.length)];
-    const content = pickMessageContent();
+    const content = pickMessageContent(own);
 
     const bodyFont = '14px "Segoe UI", sans-serif';
-    const maxTextWidth = clamp(state.W * 0.35, 170, 300);
+    let maxTextWidth;
+    switch (content.size) {
+        case 'short':  maxTextWidth = 140; break;
+        case 'long':   maxTextWidth = clamp(state.W * 0.42, 260, 440); break;
+        default:       maxTextWidth = clamp(state.W * 0.30, 170, 280); break;
+    }
     const lines = wrapText(content.text, maxTextWidth, bodyFont);
 
     let textWidth = 0;
@@ -382,25 +417,29 @@ function createMessage(y) {
     lines.forEach(function (l) {
         textWidth = Math.max(textWidth, state.ctx.measureText(l).width);
     });
+    // Own messages show only a timestamp, so short replies stay narrow
     state.ctx.font = 'bold 12px "Segoe UI", sans-serif';
-    const headerWidth = state.ctx.measureText(sender.name + '   ' + gameClock()).width;
+    const headerWidth = own
+        ? state.ctx.measureText(gameClock()).width
+        : state.ctx.measureText(sender.name + '   ' + gameClock()).width;
 
     const pad = 12;
     const hasMedia = content.type !== 'text';
-    const mediaH = hasMedia ? 64 : 0;
-    const w = clamp(Math.max(textWidth, headerWidth, hasMedia ? 190 : 0) + pad * 2, 150, state.W * 0.55);
+    // GIFs/images are chunky squares; charts are wider cards
+    const mediaW = content.type === 'gif' ? 150 + Math.random() * 60
+        : content.type === 'chart' ? 190 : 0;
+    const mediaH = content.type === 'gif' ? mediaW * 0.85
+        : content.type === 'chart' ? 80 : 0;
+    const w = clamp(Math.max(textWidth, headerWidth, mediaW) + pad * 2, 96, state.W * 0.75);
     const h = pad + 16 + lines.length * 18 + (hasMedia ? mediaH + 8 : 0) + pad - 4;
 
-    // Horizontal placement wanders relative to the previous spawn so each
-    // message stays reachable from the one above it (max jump reach while
-    // falling one gap is ~280px of steering). Leave room for the avatar on
-    // the left and a margin on the right.
-    const minX = 64;
-    const maxX = Math.max(minX + 1, state.W - w - 24);
-    const cx = clamp(state.lastSpawnCX + randRange(-270, 270),
-        minX + w / 2, maxX + w / 2);
-    const x = clamp(cx - w / 2, minX, maxX);
-    state.lastSpawnCX = x + w / 2;
+    // Teams-style alignment: your replies hug the right edge, everyone
+    // else's hug the left (past the avatar). Width variety is what creates
+    // the jumpable levels; a little jitter keeps the columns from being
+    // perfectly flush.
+    const x = own
+        ? clamp(state.W - 24 - w - Math.random() * 70, 64, state.W - 24 - w)
+        : 64 + Math.random() * 90;
 
     return {
         x: x, y: y, w: w, h: h, prevY: y,
@@ -409,6 +448,7 @@ function createMessage(y) {
         type: content.type,
         lines: lines,
         time: gameClock(),
+        mediaW: mediaW,
         mediaH: mediaH,
         // Pre-rolled visuals so media doesn't flicker between frames
         gifHue: Math.floor(Math.random() * 360),
@@ -456,8 +496,12 @@ function updateWorld(t, elapsedSec) {
         state.messages[i].y -= scroll;
     }
 
-    // Spawn new messages from the bottom as distance accumulates
-    state.scrolledSinceSpawn += scroll;
+    // Spawn new messages from the bottom as distance accumulates. The rate
+    // rises the deeper the player pushes (more platforms where they're
+    // needed) and the gaps themselves shrink slowly over time.
+    const depth = clamp((state.player.y + state.player.h) / state.H, 0, 1);
+    const timeShrink = Math.max(CONFIG.SPAWN_SHRINK_FLOOR, 1 - elapsedSec * CONFIG.SPAWN_TIME_SHRINK);
+    state.scrolledSinceSpawn += scroll * (1 + depth * CONFIG.SPAWN_DEPTH_BOOST) / timeShrink;
     if (state.scrolledSinceSpawn >= state.nextSpawnGap) {
         state.scrolledSinceSpawn = 0;
         state.nextSpawnGap = randRange(CONFIG.SPAWN_GAP_MIN, CONFIG.SPAWN_GAP_MAX);
@@ -565,43 +609,153 @@ function updateBoss(t, now, elapsedSec) {
         return;
     }
 
-    b.speed = Math.min(CONFIG.BOSS_SPEED_MAX, CONFIG.BOSS_SPEED + elapsedSec * CONFIG.BOSS_RAMP);
-
-    // Home in on the player. The boss ignores gravity and scrolling — he
-    // floats down through the chat with pure managerial fury.
-    const dx = (p.x + p.w / 2) - (b.x + b.w / 2);
-    const dy = (p.y + p.h / 2) - (b.y + b.h / 2);
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    b.x += (dx / dist) * b.speed * t;
-    b.y += (dy / dist) * b.speed * 0.85 * t;
-
-    // Smash the nearest message within reach
+    b.runSpeed = Math.min(CONFIG.BOSS_RUN_MAX, CONFIG.BOSS_RUN_SPEED + elapsedSec * CONFIG.BOSS_RAMP);
     if (b.smashCooldown > 0) b.smashCooldown -= t;
     if (b.smashPose > 0) b.smashPose -= t;
 
-    if (b.smashCooldown <= 0) {
-        const bx = b.x + b.w / 2;
-        const by = b.y + b.h / 2;
-        let bestIdx = -1;
-        let bestDist = CONFIG.BOSS_SMASH_RANGE;
-        for (let i = 0; i < state.messages.length; i++) {
-            const m = state.messages[i];
-            const mx = clamp(bx, m.x, m.x + m.w);
-            const my = clamp(by, m.y, m.y + m.h);
-            const d = Math.sqrt((bx - mx) * (bx - mx) + (by - my) * (by - my));
-            if (d < bestDist) {
-                bestDist = d;
-                bestIdx = i;
+    // Fell off the bottom of the chat: he's out of play for a moment, then
+    // re-enters from the top and works his way back down.
+    if (b.mode === 'stairs') {
+        b.stairsTimer -= t;
+        if (b.stairsTimer <= 0) {
+            b.mode = 'catchup';
+            b.y = Math.min(p.y, 0) - state.H * 0.4;
+            b.x = clamp(p.x + (Math.random() < 0.5 ? -180 : 180), 0, state.W - b.w);
+            b.vx = 0;
+            b.vy = 0;
+        }
+        return;
+    }
+    if (b.y > state.H + 50) {
+        b.mode = 'stairs';
+        b.stairsTimer = CONFIG.BOSS_STAIRS_FRAMES;
+        b.grounded = false;
+        b.platform = null;
+        b.windup = 0;
+        return;
+    }
+
+    // Carried off the top (the scroll took him): rampage back down through
+    // the chat toward the player, smashing anything in the way.
+    if (b.mode !== 'catchup' && b.y + b.h < -30) {
+        b.mode = 'catchup';
+        b.grounded = false;
+        b.platform = null;
+        b.windup = 0;
+    }
+
+    if (b.mode === 'catchup') {
+        const dx = (p.x + p.w / 2) - (b.x + b.w / 2);
+        b.x += clamp(dx * 0.05, -1.6, 1.6) * t;
+        b.y += (state.scrollSpeed + CONFIG.BOSS_CATCHUP_EXTRA) * t;
+        // Rubber band: never fall more than ~1.2 screens behind, so the
+        // threat always comes back eventually.
+        b.y = Math.max(b.y, p.y - state.H * 1.2);
+        // Smash straight through messages on the way down
+        if (b.smashCooldown <= 0) {
+            for (let i = 0; i < state.messages.length; i++) {
+                const m = state.messages[i];
+                if (b.x + b.w > m.x && b.x < m.x + m.w &&
+                    b.y + b.h > m.y && b.y < m.y + m.h) {
+                    smashMessage(i);
+                    b.smashCooldown = 25;
+                    b.smashPose = 14;
+                    break;
+                }
             }
         }
-        if (bestIdx !== -1) {
-            smashMessage(bestIdx);
+        if (b.y > 30) {
+            b.mode = 'normal';
+            b.vy = Math.max(b.vy, 1);
+        }
+        checkBossCatch();
+        return;
+    }
+
+    /* --- Normal mode: same platform physics as the player --- */
+
+    const prevBottom = b.y + b.h;
+    const dx = (p.x + p.w / 2) - (b.x + b.w / 2);
+
+    // Mid-windup he plants his feet and raises his arms — the telegraph —
+    // then smashes the platform he's standing on and drops through.
+    if (b.windup > 0) {
+        b.windup -= t;
+        b.vx *= Math.pow(0.6, t);
+        if (b.windup <= 0 && b.grounded && b.platform) {
+            const idx = state.messages.indexOf(b.platform);
+            if (idx !== -1) smashMessage(idx);
+            b.grounded = false;
+            b.platform = null;
             b.smashCooldown = CONFIG.BOSS_SMASH_COOLDOWN;
-            b.smashPose = 18;
+            b.smashPose = 16;
+        }
+    } else {
+        const dir = dx > 6 ? 1 : dx < -6 ? -1 : 0;
+        // Very little steering in the air — he's a manager, not a missile.
+        // A falling boss commits to his line and can be sidestepped.
+        const accel = CONFIG.BOSS_ACCEL * (b.grounded ? 1 : 0.22);
+        if (dir !== 0) {
+            b.vx = clamp(b.vx + dir * accel * t, -b.runSpeed, b.runSpeed);
+        } else if (b.grounded) {
+            b.vx *= Math.pow(0.8, t);
+        }
+    }
+    b.x = clamp(b.x + b.vx * t, 0, state.W - b.w);
+
+    // Ride the platform he's standing on (the scroll carries him up too)
+    if (b.grounded) {
+        const m = b.platform;
+        const stillThere = m && state.messages.indexOf(m) !== -1 &&
+            b.x + b.w > m.x + 2 && b.x < m.x + m.w - 2;
+        if (stillThere) {
+            b.y = m.y - b.h;
+            b.vy = 0;
+        } else {
+            b.grounded = false;
+            b.platform = null;
         }
     }
 
-    // Caught the player? (slightly forgiving hitbox)
+    if (b.grounded && b.windup <= 0 && b.smashCooldown <= 0) {
+        if (p.y > b.y + b.h + 20 && b.platform !== p.platform) {
+            // Player is below: smash through the floor to follow
+            b.windup = CONFIG.BOSS_WINDUP;
+        } else if (p.y + p.h < b.y - 60 && Math.abs(dx) < 220) {
+            // Player is above and close: jump after them
+            b.vy = CONFIG.JUMP_VELOCITY * 0.95;
+            b.grounded = false;
+            b.platform = null;
+            b.smashCooldown = 30;
+        }
+    }
+
+    // Gravity + one-way landing, mirroring the player
+    if (!b.grounded) {
+        b.vy += CONFIG.GRAVITY * t;
+        b.y += b.vy * t;
+        if (b.vy >= 0) {
+            const newBottom = b.y + b.h;
+            for (let i = 0; i < state.messages.length; i++) {
+                const m = state.messages[i];
+                if (b.x + b.w > m.x + 2 && b.x < m.x + m.w - 2 &&
+                    prevBottom <= m.prevY + 1 && newBottom >= m.y - 1) {
+                    b.y = m.y - b.h;
+                    b.vy = 0;
+                    b.grounded = true;
+                    b.platform = m;
+                    break;
+                }
+            }
+        }
+    }
+
+    checkBossCatch();
+}
+
+function checkBossCatch() {
+    const b = state.boss;
+    const p = state.player;
     const inset = 8;
     if (p.x + p.w > b.x + inset && p.x < b.x + b.w - inset &&
         p.y + p.h > b.y + inset && p.y < b.y + b.h - inset) {
@@ -665,14 +819,20 @@ function drawMessage(m) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
 
-    // Sender + timestamp
-    ctx.font = 'bold 12px "Segoe UI", sans-serif';
-    ctx.fillStyle = '#424242';
-    ctx.fillText(m.sender.name, m.x + pad, m.y + pad + 8);
-    const nameW = ctx.measureText(m.sender.name).width;
-    ctx.font = '11px "Segoe UI", sans-serif';
-    ctx.fillStyle = '#8a8a8a';
-    ctx.fillText(m.time, m.x + pad + nameW + 8, m.y + pad + 8);
+    // Sender + timestamp (own messages show just the time, like Teams)
+    if (m.own) {
+        ctx.font = '11px "Segoe UI", sans-serif';
+        ctx.fillStyle = '#8a8a8a';
+        ctx.fillText(m.time, m.x + pad, m.y + pad + 8);
+    } else {
+        ctx.font = 'bold 12px "Segoe UI", sans-serif';
+        ctx.fillStyle = '#424242';
+        ctx.fillText(m.sender.name, m.x + pad, m.y + pad + 8);
+        const nameW = ctx.measureText(m.sender.name).width;
+        ctx.font = '11px "Segoe UI", sans-serif';
+        ctx.fillStyle = '#8a8a8a';
+        ctx.fillText(m.time, m.x + pad + nameW + 8, m.y + pad + 8);
+    }
 
     // Body text
     ctx.font = '14px "Segoe UI", sans-serif';
@@ -684,7 +844,7 @@ function drawMessage(m) {
     // Media block
     if (m.type !== 'text') {
         const my = m.y + pad + 16 + m.lines.length * 18 + 4;
-        const mw = m.w - pad * 2;
+        const mw = m.mediaW;
 
         if (m.type === 'gif') {
             const grad = ctx.createLinearGradient(m.x + pad, my, m.x + pad + mw, my + m.mediaH);
@@ -814,8 +974,10 @@ function drawPlayer() {
 function drawBoss(now) {
     const ctx = state.ctx;
     const b = state.boss;
-    const bob = Math.sin(b.bobPhase) * 3;
+    if (b.mode === 'stairs') return;   // out of play, off the bottom
+    const bob = b.grounded ? 0 : Math.sin(b.bobPhase) * 2;
     const angry = b.chasing;
+    const armsUp = b.smashPose > 0 || b.windup > 0;
 
     ctx.save();
     ctx.translate(b.x + b.w / 2, b.y + bob);
@@ -837,7 +999,7 @@ function drawBoss(now) {
     ctx.strokeStyle = suit;
     ctx.lineWidth = 8;
     ctx.beginPath();
-    if (b.smashPose > 0) {
+    if (armsUp) {
         ctx.moveTo(-12, 28); ctx.lineTo(-20, 6);
         ctx.moveTo(12, 28);  ctx.lineTo(20, 6);
     } else if (angry) {
@@ -852,7 +1014,7 @@ function drawBoss(now) {
     ctx.stroke();
 
     // Fists
-    if (b.smashPose > 0) {
+    if (armsUp) {
         ctx.fillStyle = skinTone;
         ctx.beginPath();
         ctx.arc(-20, 6, 5, 0, Math.PI * 2);
@@ -980,6 +1142,39 @@ function drawCountdown(now) {
     }
 }
 
+function drawBossIndicator() {
+    const b = state.boss;
+    if (!b.chasing) return;
+    const ctx = state.ctx;
+
+    let text = null;
+    let color = '#c4314b';
+    let px = state.W / 2;
+
+    if (b.mode === 'stairs') {
+        text = 'The boss fell! He’s taking the stairs…';
+        color = '#498205';
+    } else if (b.y + b.h < 0) {
+        const dist = Math.round(-(b.y + b.h));
+        text = '▲ Boss · ' + Math.max(1, Math.round(dist / 12)) + 'm behind';
+        color = dist > 250 ? '#498205' : '#c4314b';
+        px = clamp(b.x + b.w / 2, 90, state.W - 90);
+    }
+    if (!text) return;
+
+    ctx.font = 'bold 12px "Segoe UI", sans-serif';
+    const tw = ctx.measureText(text).width;
+    roundRect(ctx, px - tw / 2 - 12, 10, tw + 24, 24, 12);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.92;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, px, 26);
+    ctx.textAlign = 'left';
+}
+
 function draw(now) {
     const ctx = state.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1001,6 +1196,7 @@ function draw(now) {
     drawPlayer();
     drawBoss(now);
     drawCountdown(now);
+    drawBossIndicator();
 }
 
 /* --------------------------------------------------------------------------
