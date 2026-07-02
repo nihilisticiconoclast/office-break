@@ -118,6 +118,8 @@ const CHART_TITLES = [
 
 const BOSS_QUOTES = ['DENIED.', 'CANCELLED.', 'NOT APPROVED.', 'SEEN. IGNORED.', 'REJECTED.', 'NO.'];
 
+const REACTION_EMOJI = ['👍', '❤️', '😂', '😮', '🎉', '💯'];
+
 const MILESTONE_FLAVOR = [
     'Inbox zero energy',
     'Promotion pending…',
@@ -390,6 +392,10 @@ function setupInput() {
     window.addEventListener('blur', function () {
         if (state.running && !state.paused) togglePause();
     });
+    // ...and when the tab is hidden (mobile app switch doesn't always blur)
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden && state.running && !state.paused) togglePause();
+    });
 
     setupTouchControls();
 }
@@ -448,6 +454,8 @@ function startGame() {
     state.paused = false;
     state.stats = { hops: 0, smashed: 0 };
     state.lastMilestone = 0;
+    state.channelStage = 0;
+    setActiveChannel(0);
     state.startTime = performance.now();
     state.lastFrame = performance.now();
     state.scrollSpeed = CONFIG.SCROLL_SPEED_START;
@@ -781,6 +789,23 @@ function updateWorld(t, elapsedSec) {
             state.messages.splice(i, 1);
         }
     }
+
+    // Ambient reactions: now and then someone thumbs-ups a message and the
+    // emoji floats up off the bubble
+    if (Math.random() < 0.009 * t && state.messages.length) {
+        const m = pick(state.messages);
+        if (m.y > 20 && m.y < state.H - 20) {
+            state.particles.push({
+                x: m.x + m.w - 14,
+                y: m.y + 2,
+                vx: (Math.random() - 0.5) * 0.4,
+                vy: -0.7 - Math.random() * 0.4,
+                size: 0, rot: 0, vr: 0,
+                life: 1,
+                emoji: pick(REACTION_EMOJI)
+            });
+        }
+    }
 }
 
 function updatePlayer(t) {
@@ -1076,9 +1101,9 @@ function updateParticles(t) {
         const pt = state.particles[i];
         pt.x += pt.vx * t;
         pt.y += pt.vy * t;
-        pt.vy += (pt.dust ? 0.05 : 0.25) * t;
+        if (!pt.emoji) pt.vy += (pt.dust ? 0.05 : 0.25) * t;   // reactions just float
         pt.rot += pt.vr * t;
-        pt.life -= (pt.dust ? 0.045 : 0.025) * t;
+        pt.life -= (pt.emoji ? 0.012 : pt.dust ? 0.045 : 0.025) * t;
         if (pt.life <= 0) state.particles.splice(i, 1);
     }
 }
@@ -1514,6 +1539,15 @@ function drawParticles() {
     const ctx = state.ctx;
     for (let i = 0; i < state.particles.length; i++) {
         const pt = state.particles[i];
+        if (pt.emoji) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 1.4));
+            ctx.font = '15px "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(pt.emoji, pt.x, pt.y);
+            ctx.restore();
+            continue;
+        }
         ctx.save();
         ctx.globalAlpha = Math.max(0, pt.life);
         ctx.translate(pt.x, pt.y);
@@ -1620,6 +1654,16 @@ function draw(now) {
    Toasts — Teams-style notification cards, top-right of the chat
    -------------------------------------------------------------------------- */
 
+function setActiveChannel(index) {
+    const ch = CHANNELS[index];
+    document.querySelector('#chat-header .chat-title-text h1').textContent = ch.name;
+    document.querySelector('#chat-header .channel-avatar').textContent = ch.name[0];
+    const items = document.querySelectorAll('#channel-list li');
+    items.forEach(function (li, i) {
+        li.classList.toggle('active', i === index);
+    });
+}
+
 let toastTimer = null;
 
 function showToast(title, body) {
@@ -1647,7 +1691,9 @@ function gameLoop(now) {
     // step so a background tab doesn't teleport everything on return.
     const t = Math.min(now - state.lastFrame, 50) / 16.667;
     state.lastFrame = now;
-    const elapsedSec = (now - state.startTime) / 1000;
+    // RAF timestamps can trail performance.now() by a few ms on the very
+    // first frame — never let elapsed time (and thus score) go negative.
+    const elapsedSec = Math.max(0, (now - state.startTime) / 1000);
 
     updateWorld(t, elapsedSec);
     updatePlayer(t);
@@ -1661,6 +1707,14 @@ function gameLoop(now) {
     if (milestone > state.lastMilestone) {
         state.lastMilestone = milestone;
         showToast('\ud83c\udfc6 ' + (milestone * 250) + ' points', pick(MILESTONE_FLAVOR));
+    }
+
+    // Every 500 points you get dragged into a busier channel
+    const stage = clamp(Math.floor(state.score / 500), 0, CHANNELS.length - 1);
+    if (stage !== state.channelStage) {
+        state.channelStage = stage;
+        setActiveChannel(stage);
+        if (stage > 0) showToast('\ud83d\udce5 Moved to ' + CHANNELS[stage].name, 'It gets busier in here\u2026');
     }
 
     draw(now);
