@@ -278,7 +278,9 @@ const state = {
     player: null,
     boss: null,
     messages: [],
-    particles: []
+    particles: [],
+    pickups: [],
+    buffTimer: 0
 };
 
 /* --------------------------------------------------------------------------
@@ -503,6 +505,8 @@ function startGame() {
     state.jumpQueued = false;
     state.messages = [];
     state.particles = [];
+    state.pickups = [];
+    state.buffTimer = 0;
 
     state.player = {
         x: state.W / 2 - 14, y: 0,
@@ -749,7 +753,13 @@ function createMessage(y) {
 }
 
 function spawnFromBottom() {
-    state.messages.push(createMessage(state.H + 12));
+    const m = createMessage(state.H + 12);
+    state.messages.push(m);
+    // Occasionally a coffee rides in on a message. One on screen at a time,
+    // and not while you're already caffeinated.
+    if (Math.random() < 0.09 && state.pickups.length === 0 && state.buffTimer <= 0) {
+        state.pickups.push({ m: m, ox: 20 + Math.random() * Math.max(10, m.w - 40) });
+    }
 }
 
 function smashMessage(index) {
@@ -854,8 +864,9 @@ function updatePlayer(t) {
     let ax = 0;
     if (state.keys.ArrowLeft || state.keys.KeyA) ax -= CONFIG.MOVE_ACCEL;
     if (state.keys.ArrowRight || state.keys.KeyD) ax += CONFIG.MOVE_ACCEL;
+    const maxSpeed = CONFIG.MOVE_SPEED * (state.buffTimer > 0 ? 1.35 : 1);
     if (ax !== 0) {
-        p.vx = clamp(p.vx + ax * t, -CONFIG.MOVE_SPEED, CONFIG.MOVE_SPEED);
+        p.vx = clamp(p.vx + ax * t, -maxSpeed, maxSpeed);
         p.facing = ax > 0 ? 1 : -1;
     } else {
         p.vx *= Math.pow(CONFIG.FRICTION, t);
@@ -886,8 +897,11 @@ function updatePlayer(t) {
         p.jumpBuffer = CONFIG.JUMP_BUFFER_FRAMES;
     }
     if (p.jumpBuffer > 0) {
-        if (p.grounded || p.coyote > 0) {
-            p.vy = CONFIG.JUMP_VELOCITY;
+        const canGround = p.grounded || p.coyote > 0;
+        const canAir = !canGround && state.buffTimer > 0 && p.airJump > 0;
+        if (canGround || canAir) {
+            if (canAir) p.airJump--;
+            p.vy = CONFIG.JUMP_VELOCITY * (state.buffTimer > 0 ? 1.12 : 1);
             Sound.jump();
             spawnDust(p.x + p.w / 2, p.y + p.h, 3);
             p.grounded = false;
@@ -919,6 +933,7 @@ function updatePlayer(t) {
                         p.lastLanding = m;
                         state.stats.hops++;
                     }
+                    if (state.buffTimer > 0) p.airJump = 1;
                     p.y = m.y - p.h;
                     p.vy = 0;
                     p.grounded = true;
@@ -938,6 +953,29 @@ function updatePlayer(t) {
         p.animPhase += 0.06 * t;
     } else {
         p.animPhase = 0;
+    }
+
+    // Coffee pickups ride their message; grab one for a caffeine buff
+    for (let i = state.pickups.length - 1; i >= 0; i--) {
+        const pk = state.pickups[i];
+        if (state.messages.indexOf(pk.m) === -1) {
+            state.pickups.splice(i, 1);
+            continue;
+        }
+        const cx = pk.m.x + pk.ox;
+        const cy = pk.m.y - 12;
+        if (p.x + p.w > cx - 11 && p.x < cx + 11 &&
+            p.y + p.h > cy - 12 && p.y < cy + 12) {
+            state.pickups.splice(i, 1);
+            state.buffTimer = 360;   // ~6 seconds
+            p.airJump = 1;
+            Sound.tone(660, 0.1, 'triangle', 0.06, 990);
+            showToast('☕ Coffee!', 'Speed up + one mid-air jump');
+        }
+    }
+    if (state.buffTimer > 0) {
+        state.buffTimer -= t;
+        if (state.buffTimer <= 0) p.airJump = 0;
     }
 
     // Lose conditions tied to the player
@@ -1619,6 +1657,30 @@ function drawCountdown(now) {
     }
 }
 
+function drawPickups(now) {
+    const ctx = state.ctx;
+    for (let i = 0; i < state.pickups.length; i++) {
+        const pk = state.pickups[i];
+        const bobble = REDUCED_MOTION ? 0 : Math.sin(now / 260 + pk.ox) * 3;
+        ctx.font = '20px "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('☕', pk.m.x + pk.ox, pk.m.y - 8 + bobble);
+        ctx.textAlign = 'left';
+    }
+    // Caffeine HUD pill while the buff is live
+    if (state.buffTimer > 0) {
+        const secs = Math.ceil(state.buffTimer / 60);
+        const text = '☕ ' + secs + 's · double jump';
+        ctx.font = 'bold 12px "Segoe UI", sans-serif';
+        const tw = ctx.measureText(text).width;
+        roundRect(ctx, 12, 12, tw + 20, 24, 12);
+        ctx.fillStyle = 'rgba(73, 130, 5, 0.92)';
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(text, 22, 29);
+    }
+}
+
 function drawDangerVignette() {
     // Red glow bleeding in from the top as the scroll pulls you toward the
     // archive — the closer you are, the hotter it gets.
@@ -1684,6 +1746,7 @@ function draw(now) {
     for (let i = 0; i < state.messages.length; i++) {
         drawMessage(state.messages[i]);
     }
+    drawPickups(now);
     drawParticles();
     drawPlayer();
     drawBoss(now);

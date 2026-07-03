@@ -67,6 +67,9 @@ For a quick local test on the same Wi-Fi instead: run
   messages, so he's never gone for good. Bait him off the bottom edge and
   he's out of play for a few seconds while he takes the stairs.
 - Messages arrive faster the deeper you push and the longer you survive.
+- Grab the occasional **☕ coffee** riding a message for six seconds of
+  caffeine: faster running, springier jumps, and one mid-air double jump
+  (refreshed on every landing while it lasts).
 - The game ends when:
   - the boss catches you,
   - you fall off the bottom of the chat, or
