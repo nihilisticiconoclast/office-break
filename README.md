@@ -31,6 +31,12 @@ python3 -m http.server 8000
 On touch devices, on-screen buttons appear automatically: ◀ ▶ to move
 (bottom-left) and ⬆ to jump (bottom-right).
 
+The start screen offers three difficulties — **Chill**, **Standard**, and
+**Crunch** — which scale the scroll speed, the boss's pace, and how fast
+both ramp up. Your choice is remembered. After a run you can copy a
+shareable score line from the game-over card, and the game honors
+`prefers-reduced-motion` (no screen shake or pulsing outlines).
+
 ### Playing on mobile
 
 The game is a static page, so the easiest way to get it on your phone is

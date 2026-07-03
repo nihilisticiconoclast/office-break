@@ -239,6 +239,15 @@ const CONFIG = {
     POINTS_PER_SECOND: 10
 };
 
+const DIFFICULTY = {
+    chill:    { scroll: 0.85, boss: 0.85, ramp: 0.7 },
+    standard: { scroll: 1,    boss: 1,    ramp: 1 },
+    crunch:   { scroll: 1.15, boss: 1.15, ramp: 1.4 }
+};
+
+const REDUCED_MOTION = window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 /* --------------------------------------------------------------------------
    State
    -------------------------------------------------------------------------- */
@@ -264,6 +273,7 @@ const state = {
 
     keys: {},
     jumpQueued: false,
+    diff: 'standard',
 
     player: null,
     boss: null,
@@ -336,6 +346,33 @@ function boot() {
     document.getElementById('start-btn').addEventListener('click', startGame);
     document.getElementById('restart-btn').addEventListener('click', startGame);
     document.getElementById('resume-btn').addEventListener('click', togglePause);
+
+    state.diff = localStorage.getItem('office-break-diff') || 'standard';
+    document.querySelectorAll('.diff-btn').forEach(function (btn) {
+        btn.classList.toggle('active', btn.dataset.diff === state.diff);
+        btn.addEventListener('click', function () {
+            state.diff = btn.dataset.diff;
+            localStorage.setItem('office-break-diff', state.diff);
+            document.querySelectorAll('.diff-btn').forEach(function (b) {
+                b.classList.toggle('active', b === btn);
+            });
+        });
+    });
+
+    document.getElementById('share-btn').addEventListener('click', function () {
+        const text = 'I scored ' + Math.floor(state.score) +
+            ' in Office Break \ud83d\udcbc\ud83c\udfc3 before the boss got me. Beat that.';
+        const btn = document.getElementById('share-btn');
+        function done() {
+            btn.textContent = 'Copied \u2713';
+            setTimeout(function () { btn.textContent = 'Copy score \ud83d\udccb'; }, 1600);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done, function () { btn.textContent = text; });
+        } else {
+            btn.textContent = text;
+        }
+    });
 
     Sound.muted = localStorage.getItem('office-break-muted') === '1';
     document.getElementById('mute-btn').textContent = Sound.muted ? '🔇' : '🔊';
@@ -748,8 +785,9 @@ function smashMessage(index) {
 
 function updateWorld(t, elapsedSec) {
     // Difficulty ramp
+    const diff = DIFFICULTY[state.diff] || DIFFICULTY.standard;
     state.scrollSpeed = Math.min(CONFIG.SCROLL_SPEED_MAX,
-        CONFIG.SCROLL_SPEED_START + elapsedSec * CONFIG.SCROLL_RAMP);
+        (CONFIG.SCROLL_SPEED_START + elapsedSec * CONFIG.SCROLL_RAMP * diff.ramp) * diff.scroll);
 
     // Scroll every message upward. Urgent messages climb faster than the
     // rest, but are clamped just beneath the message above them so nothing
@@ -925,7 +963,9 @@ function updateBoss(t, now, elapsedSec) {
         return;
     }
 
-    b.runSpeed = Math.min(CONFIG.BOSS_RUN_MAX, CONFIG.BOSS_RUN_SPEED + elapsedSec * CONFIG.BOSS_RAMP);
+    const bdiff = DIFFICULTY[state.diff] || DIFFICULTY.standard;
+    b.runSpeed = Math.min(CONFIG.BOSS_RUN_MAX,
+        (CONFIG.BOSS_RUN_SPEED + elapsedSec * CONFIG.BOSS_RAMP * bdiff.ramp) * bdiff.boss);
     if (b.smashCooldown > 0) b.smashCooldown -= t;
     if (b.smashPose > 0) b.smashPose -= t;
 
@@ -1282,7 +1322,7 @@ function drawMessage(m) {
     state.ctx.drawImage(m.cache, m.x - CACHE_PAD_L, m.y - CACHE_PAD_T, m.cacheW, m.cacheH);
     if (m.urgent) {
         // Live pulsing outline so urgent messages read as urgent at a glance
-        const a = 0.4 + 0.3 * Math.sin(performance.now() / 170);
+        const a = REDUCED_MOTION ? 0.55 : 0.4 + 0.3 * Math.sin(performance.now() / 170);
         const ctx = state.ctx;
         ctx.strokeStyle = 'rgba(196, 49, 75, ' + a + ')';
         ctx.lineWidth = 2;
@@ -1633,7 +1673,9 @@ function draw(now) {
     // Screen shake when the boss smashes something
     if (state.shake > 0) {
         state.shake--;
-        ctx.translate((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
+        if (!REDUCED_MOTION) {
+            ctx.translate((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
+        }
     }
 
     ctx.fillStyle = '#f5f5f5';

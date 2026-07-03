@@ -499,6 +499,40 @@ kbd {
 
 #game-over-reason { color: var(--busy); font-weight: 600; margin: 0 0 6px; }
 .new-best { color: var(--online); font-weight: 700; margin: 0 0 6px; }
+
+.difficulty { display: flex; gap: 8px; justify-content: center; margin: 0 0 18px; }
+
+.diff-btn {
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 14px;
+    padding: 5px 16px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.diff-btn.active {
+    background: var(--teams-purple);
+    border-color: var(--teams-purple);
+    color: #fff;
+    font-weight: 600;
+}
+
+.ghost-btn {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 9px 18px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--text-secondary);
+    cursor: pointer;
+    margin-left: 8px;
+}
+
+.ghost-btn:hover { border-color: var(--teams-purple); color: var(--teams-purple); }
 .dialog .final { font-size: 18px; margin: 0 0 20px; }
 .dialog .final strong { color: var(--teams-purple); }
 .dialog .hint { font-size: 12px; color: var(--text-secondary); margin: 12px 0 0; }
