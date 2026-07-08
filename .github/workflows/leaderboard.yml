@@ -1,0 +1,83 @@
+# GitHub-only leaderboard: players submit scores by opening a prefilled
+# issue (the game builds the link). This workflow validates the title,
+# records the entry in scores.json on main, and closes the issue.
+# GitHub Pages then serves the updated board — no server needed.
+name: Leaderboard
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: leaderboard
+  cancel-in-progress: false
+
+jobs:
+  record:
+    if: startsWith(github.event.issue.title, '🏆 Score:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Parse and record score
+        id: rec
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            // Strict format: "🏆 Score: AAA 1234 (standard)" — everything
+            // else is rejected. Only the title is trusted; the body is ignored.
+            const m = context.payload.issue.title
+                .match(/^🏆 Score: ([A-Z0-9]{1,3}) (\d{1,6}) \((chill|standard|crunch)\)$/);
+            if (!m) { core.setOutput('ok', 'no'); return; }
+            const score = parseInt(m[2], 10);
+            if (score < 1 || score > 200000) { core.setOutput('ok', 'no'); return; }
+
+            let scores = [];
+            try { scores = JSON.parse(fs.readFileSync('scores.json', 'utf8')); } catch (e) {}
+            if (!Array.isArray(scores)) scores = [];
+            scores.push({
+              initials: m[1],
+              score: score,
+              diff: m[3],
+              date: new Date().toISOString().slice(0, 10),
+              by: context.payload.issue.user.login
+            });
+            scores.sort((a, b) => b.score - a.score);
+            fs.writeFileSync('scores.json', JSON.stringify(scores.slice(0, 100), null, 1) + '\n');
+            core.setOutput('ok', 'yes');
+            core.setOutput('summary', m[1] + ' ' + score + ' (' + m[3] + ')');
+
+      - name: Commit to main
+        if: steps.rec.outputs.ok == 'yes'
+        run: |
+          git config user.name 'leaderboard-bot'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add scores.json
+          git commit -m "Leaderboard: ${{ steps.rec.outputs.summary }}"
+          git pull --rebase origin main
+          git push origin main
+
+      - name: Reply and close
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ok = '${{ steps.rec.outputs.ok }}' === 'yes';
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: ok
+                ? '🏆 Score recorded! It will appear on the board once GitHub Pages refreshes (a minute or two).'
+                : 'This does not look like a valid score submission, so nothing was recorded.'
+            });
+            await github.rest.issues.update({
+              ...context.repo,
+              issue_number: context.issue.number,
+              state: 'closed'
+            });

@@ -141,6 +141,11 @@ const MILESTONE_FLAVOR = [
 
 const LEADERBOARD_URL = '';   // e.g. 'https://office-break.onrender.com'
 
+// GitHub-only board: scores.json lives in this repo and a GitHub Action
+// records submissions (players post them as prefilled issues). Set to
+// '' to disable. Used when no live API server is reachable.
+const GITHUB_REPO = 'nihilisticiconoclast/office-break';
+
 const Leaderboard = {
     mode: null,     // 'remote' | 'local'
     base: '',
@@ -168,9 +173,67 @@ const Leaderboard = {
                     }
                 } catch (err) { /* fall through to local */ }
             }
+            const gh = await this.githubScores();
+            if (gh !== null) {
+                this.mode = 'github';
+                return this.mergeWithPending(gh);
+            }
             this.mode = 'local';
         }
+        if (this.mode === 'github') {
+            const gh = await this.githubScores();
+            if (gh !== null) return this.mergeWithPending(gh);
+        }
         return this.localScores();
+    },
+
+    // Fetch the committed scores.json — same-origin first (GitHub Pages of
+    // this repo), then the raw.githubusercontent fallback (works anywhere).
+    githubScores: async function () {
+        if (!GITHUB_REPO) return null;
+        const urls = [];
+        if (location.protocol === 'http:' || location.protocol === 'https:') {
+            urls.push('scores.json?t=' + Date.now());
+        }
+        urls.push('https://raw.githubusercontent.com/' + GITHUB_REPO + '/main/scores.json?t=' + Date.now());
+        for (let i = 0; i < urls.length; i++) {
+            try {
+                const res = await fetch(urls[i], { signal: AbortSignal.timeout(4000), cache: 'no-store' });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data)) return data;
+                }
+            } catch (err) { /* try next */ }
+        }
+        return null;
+    },
+
+    // Local entries wait as "pending" until the Action merges them upstream
+    mergeWithPending: function (remote) {
+        let pending = this.localScores();
+        const kept = pending.filter(function (p) {
+            return !remote.some(function (r) {
+                return r.initials === p.initials && r.score === p.score;
+            });
+        });
+        if (kept.length !== pending.length) {
+            localStorage.setItem('office-break-lb', JSON.stringify(kept));
+        }
+        const merged = remote.concat(kept.map(function (p) {
+            const copy = Object.assign({}, p);
+            copy.pending = true;
+            return copy;
+        }));
+        merged.sort(function (a, b) { return b.score - a.score; });
+        return merged.slice(0, 20);
+    },
+
+    issueUrl: function (initials, score) {
+        const title = '🏆 Score: ' + initials + ' ' + score + ' (' + state.diff + ')';
+        const body = 'Automated leaderboard submission from Office Break. ' +
+            'Just press "Create" — a bot records the score and closes this issue.';
+        return 'https://github.com/' + GITHUB_REPO + '/issues/new?title=' +
+            encodeURIComponent(title) + '&body=' + encodeURIComponent(body);
     },
 
     localScores: function () {
@@ -189,6 +252,15 @@ const Leaderboard = {
             diff: state.diff,
             date: new Date().toISOString().slice(0, 10)
         };
+        if (this.mode === 'github') {
+            const list = this.localScores();
+            list.push(entry);
+            list.sort(function (a, b) { return b.score - a.score; });
+            localStorage.setItem('office-break-lb', JSON.stringify(list.slice(0, 50)));
+            this.lastIssueUrl = this.issueUrl(entry.initials, entry.score);
+            const gh = await this.githubScores();
+            return this.mergeWithPending(gh || []);
+        }
         if (this.mode === 'remote') {
             try {
                 const res = await fetch(this.base + '/api/scores', {
@@ -462,6 +534,9 @@ function boot() {
     });
 
     document.getElementById('initials-ok').addEventListener('click', confirmInitials);
+    document.getElementById('lb-github-submit').addEventListener('click', function () {
+        if (Leaderboard.lastIssueUrl) window.open(Leaderboard.lastIssueUrl, '_blank');
+    });
     document.querySelectorAll('.initial-slot').forEach(function (slot, i) {
         slot.querySelector('.init-char').addEventListener('click', function () {
             lbEntry.slot = i;
@@ -1966,6 +2041,7 @@ function renderBoard(scores, you) {
             li.classList.add('lb-you');
             highlighted = true;
         }
+        if (s.pending) li.classList.add('lb-pending');
         li.innerHTML =
             '<span class="lb-rank">' + (i + 1) + '.</span>' +
             '<span class="lb-initials">' + String(s.initials).replace(/[<>&]/g, '') + '</span>' +
@@ -1977,9 +2053,19 @@ function renderBoard(scores, you) {
         li.innerHTML = '<span class="lb-rank">–</span><span class="lb-initials">no scores yet</span>';
         list.appendChild(li);
     }
-    document.getElementById('lb-note').textContent = Leaderboard.mode === 'remote'
-        ? 'Global leaderboard'
-        : 'Local board (this browser only) — deploy the server for a global one';
+    const note = document.getElementById('lb-note');
+    if (Leaderboard.mode === 'remote') {
+        note.textContent = 'Global leaderboard';
+    } else if (Leaderboard.mode === 'github') {
+        note.textContent = you && Leaderboard.lastIssueUrl
+            ? 'Post your score so everyone sees it (needs a GitHub account) — it merges in ~1 min.'
+            : 'Global board via GitHub';
+    } else {
+        note.textContent = 'Local board (this browser only) — deploy the server for a global one';
+    }
+    const ghBtn = document.getElementById('lb-github-submit');
+    ghBtn.classList.toggle('hidden',
+        !(Leaderboard.mode === 'github' && you && Leaderboard.lastIssueUrl));
     document.getElementById('lb-board').classList.remove('hidden');
 }
 

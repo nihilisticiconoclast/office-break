@@ -630,6 +630,11 @@ kbd {
 #lb-list li:nth-child(2) .lb-rank { color: #8a8a8a; }
 #lb-list li:nth-child(3) .lb-rank { color: #a0522d; }
 
+#lb-list li.lb-pending:not(.lb-you) { opacity: 0.6; }
+#lb-list li.lb-pending .lb-score::after { content: ' ⏳'; font-size: 10px; }
+
+#lb-github-submit { margin-top: 10px; padding: 8px 20px; font-size: 13px; }
+
 #lb-list li.lb-you {
     background: var(--teams-purple);
 }

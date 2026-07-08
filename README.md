@@ -43,16 +43,40 @@ Land a top-10 score and you'll get the arcade treatment: enter three
 initials (type, use the on-screen ▲▼ arrows, or arrow keys + `Enter`) and
 join the **TOP OFFICE ESCAPISTS** board on the game-over card.
 
-Where the scores live depends on how the game is running:
+Where the scores live depends on how the game is running — the client
+auto-detects, in this order:
 
-- **With the bundled server** (`npm start`, or deployed to Render — see
-  below): a shared, global leaderboard stored on the server. When the game
-  page is served by the server itself no configuration is needed; if the
-  game is hosted elsewhere (e.g. GitHub Pages), set `LEADERBOARD_URL` at
-  the top of `game.js` to the server's URL.
-- **Without a server** (plain GitHub Pages, or opening `index.html`): the
-  game automatically falls back to a local, this-browser-only board kept
-  in `localStorage`, and says so under the list.
+1. **A live API server** (`LEADERBOARD_URL`, or same-origin `/api/scores`
+   when the bundled server hosts the game): shared board stored by the
+   server. Instant submissions, but on Render's free tier the file system
+   is ephemeral, so the board resets on restarts.
+2. **GitHub-only mode** (no server needed — recommended with GitHub
+   Pages): the board is `scores.json` **committed to this repo**, so it
+   never resets. Submitting opens a prefilled GitHub issue; the
+   `Leaderboard` GitHub Action validates it, commits the entry to
+   `scores.json`, and closes the issue (takes about a minute; submitting
+   requires a GitHub account). Until it merges, your score shows on the
+   board marked ⏳ pending. Configure via `GITHUB_REPO` at the top of
+   `game.js` (already set to this repo).
+3. **Local fallback** (no server, no network): a this-browser-only board
+   in `localStorage`, labeled as such.
+
+#### GitHub-only setup (persistent, free)
+
+Nothing extra to deploy — everything is in the repo:
+
+1. Enable GitHub Pages (Settings → Pages → Deploy from a branch →
+   `main` / root). That's it.
+2. Play at `https://<your-username>.github.io/office-break/`. Top-10
+   scores prompt for initials, then a **"Post score to the global
+   board"** button opens the prefilled issue; press *Create* and the bot
+   does the rest. The board updates once Pages redeploys (~1 minute).
+
+Notes: GitHub Actions must be allowed on the repo (they are by default),
+and since anyone with a GitHub account can open an issue, treat it like
+any public arcade board — the Action enforces the format and score caps,
+but not honesty. If you also deploy the Render server, the server board
+takes precedence on that deployment.
 
 #### Deploying the leaderboard server (Render)
 
