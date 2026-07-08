@@ -125,6 +125,37 @@
                             <p id="new-best" class="new-best hidden">🎉 New personal best!</p>
                             <p class="final">Final score: <strong id="final-score">0</strong></p>
                             <p id="go-stats" class="hint"></p>
+
+                            <div id="lb-section">
+                                <div id="initials-entry" class="hidden">
+                                    <p class="lb-heading blink">HIGH SCORE! ENTER YOUR INITIALS</p>
+                                    <div class="initials-row">
+                                        <div class="initial-slot active" data-slot="0">
+                                            <button class="init-arrow init-up">▲</button>
+                                            <div class="init-char">A</div>
+                                            <button class="init-arrow init-down">▼</button>
+                                        </div>
+                                        <div class="initial-slot" data-slot="1">
+                                            <button class="init-arrow init-up">▲</button>
+                                            <div class="init-char">A</div>
+                                            <button class="init-arrow init-down">▼</button>
+                                        </div>
+                                        <div class="initial-slot" data-slot="2">
+                                            <button class="init-arrow init-up">▲</button>
+                                            <div class="init-char">A</div>
+                                            <button class="init-arrow init-down">▼</button>
+                                        </div>
+                                    </div>
+                                    <p class="hint">type, or use ▲▼ and <kbd>←</kbd><kbd>→</kbd> — <kbd>Enter</kbd> to confirm</p>
+                                    <button id="initials-ok" class="primary-btn">OK</button>
+                                </div>
+                                <div id="lb-board" class="hidden">
+                                    <p class="lb-heading">— TOP OFFICE ESCAPISTS —</p>
+                                    <ol id="lb-list"></ol>
+                                    <p id="lb-note" class="hint"></p>
+                                </div>
+                            </div>
+
                             <button id="restart-btn" class="primary-btn">Try again</button>
                             <button id="share-btn" class="ghost-btn">Copy score 📋</button>
                             <p class="hint">or press <kbd>Space</kbd></p>

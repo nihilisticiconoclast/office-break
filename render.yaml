@@ -1,0 +1,19 @@
+# Render blueprint — deploy the game + leaderboard as one web service.
+# In Render: New → Blueprint → point it at this repo, or New → Web Service
+# with the settings below.
+services:
+  - type: web
+    name: office-break
+    runtime: node
+    plan: free
+    buildCommand: "echo no build needed"
+    startCommand: "npm start"
+    healthCheckPath: /api/scores
+    # NOTE: the free plan has an ephemeral filesystem — the leaderboard
+    # resets whenever the service redeploys or restarts. For a permanent
+    # board, upgrade the service and attach a disk; the server picks it up
+    # automatically at /data:
+    # disk:
+    #   name: scores
+    #   mountPath: /data
+    #   sizeGB: 1

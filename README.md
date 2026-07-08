@@ -37,6 +37,45 @@ both ramp up. Your choice is remembered. After a run you can copy a
 shareable score line from the game-over card, and the game honors
 `prefers-reduced-motion` (no screen shake or pulsing outlines).
 
+### Leaderboard
+
+Land a top-10 score and you'll get the arcade treatment: enter three
+initials (type, use the on-screen ▲▼ arrows, or arrow keys + `Enter`) and
+join the **TOP OFFICE ESCAPISTS** board on the game-over card.
+
+Where the scores live depends on how the game is running:
+
+- **With the bundled server** (`npm start`, or deployed to Render — see
+  below): a shared, global leaderboard stored on the server. When the game
+  page is served by the server itself no configuration is needed; if the
+  game is hosted elsewhere (e.g. GitHub Pages), set `LEADERBOARD_URL` at
+  the top of `game.js` to the server's URL.
+- **Without a server** (plain GitHub Pages, or opening `index.html`): the
+  game automatically falls back to a local, this-browser-only board kept
+  in `localStorage`, and says so under the list.
+
+#### Deploying the leaderboard server (Render)
+
+The server is zero-dependency Node (`server/index.js`) and also serves the
+game itself, so one free Render service gives you both:
+
+1. In Render: **New → Web Service**, connect this repo (or use **New →
+   Blueprint**, which reads `render.yaml`).
+2. Settings (already in `render.yaml`): runtime **Node**, build command
+   none, start command `npm start`.
+3. Deploy. The game is playable at your service URL (e.g.
+   `https://office-break.onrender.com`) with a shared leaderboard at
+   `/api/scores` — nothing to configure.
+4. Optional: if you keep playing from GitHub Pages instead, set
+   `LEADERBOARD_URL` in `game.js` to that Render URL and push.
+
+Caveats: on Render's **free** plan the filesystem is ephemeral, so the
+board resets when the service redeploys or restarts (free services also
+sleep after idle — first request takes ~30s to wake). For a permanent
+board, attach a persistent disk mounted at `/data` (paid plans); the
+server uses it automatically. The API validates entries (1–3 characters
+A–Z/0–9, sane score range) and rate-limits submissions per IP.
+
 ### Playing on mobile
 
 The game is a static page, so the easiest way to get it on your phone is

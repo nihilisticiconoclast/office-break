@@ -445,7 +445,7 @@ html, body {
     z-index: 10;
 }
 
-.overlay.hidden { display: none; }
+.hidden { display: none !important; }
 
 .dialog {
     background: #fff;
@@ -533,6 +533,109 @@ kbd {
 }
 
 .ghost-btn:hover { border-color: var(--teams-purple); color: var(--teams-purple); }
+
+/* --------------------------------------------------------------------------
+   Arcade leaderboard
+   -------------------------------------------------------------------------- */
+
+#lb-section { margin: 4px 0 16px; }
+
+.lb-heading {
+    font-family: Consolas, Menlo, 'Courier New', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--teams-purple-dark);
+    margin: 8px 0 10px;
+}
+
+.blink { animation: lb-blink 1s step-end infinite; }
+
+@keyframes lb-blink { 50% { opacity: 0.25; } }
+
+@media (prefers-reduced-motion: reduce) {
+    .blink { animation: none; }
+}
+
+.initials-row {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+.initial-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.init-char {
+    width: 46px;
+    height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Consolas, Menlo, 'Courier New', monospace;
+    font-size: 34px;
+    font-weight: 700;
+    color: var(--teams-purple-dark);
+    background: #f4f4fb;
+    border: 2px solid #d5d6ea;
+    border-radius: 6px;
+}
+
+.initial-slot.active .init-char {
+    border-color: var(--teams-purple);
+    background: #ecedf8;
+    box-shadow: 0 0 0 2px rgba(98, 100, 167, 0.25);
+}
+
+.init-arrow {
+    background: none;
+    border: none;
+    color: var(--teams-purple);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 12px;
+}
+
+.init-arrow:hover { color: var(--teams-purple-dark); }
+
+#initials-ok { margin-top: 6px; padding: 8px 32px; }
+
+#lb-list {
+    list-style: none;
+    margin: 0 auto;
+    padding: 0;
+    max-width: 300px;
+    font-family: Consolas, Menlo, 'Courier New', monospace;
+    font-size: 14px;
+    text-align: left;
+}
+
+#lb-list li {
+    display: flex;
+    padding: 3px 10px;
+    border-radius: 4px;
+    color: var(--text-primary);
+}
+
+#lb-list .lb-rank { width: 34px; color: var(--text-secondary); }
+#lb-list .lb-initials { flex: 1; font-weight: 700; letter-spacing: 3px; }
+#lb-list .lb-score { font-weight: 700; color: var(--teams-purple-dark); }
+
+#lb-list li:nth-child(1) .lb-rank { color: #b8860b; }
+#lb-list li:nth-child(2) .lb-rank { color: #8a8a8a; }
+#lb-list li:nth-child(3) .lb-rank { color: #a0522d; }
+
+#lb-list li.lb-you {
+    background: var(--teams-purple);
+}
+#lb-list li.lb-you .lb-rank,
+#lb-list li.lb-you .lb-initials,
+#lb-list li.lb-you .lb-score { color: #fff; }
 .dialog .final { font-size: 18px; margin: 0 0 20px; }
 .dialog .final strong { color: var(--teams-purple); }
 .dialog .hint { font-size: 12px; color: var(--text-secondary); margin: 12px 0 0; }

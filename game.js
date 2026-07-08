@@ -131,6 +131,89 @@ const MILESTONE_FLAVOR = [
 ];
 
 /* --------------------------------------------------------------------------
+   Leaderboard — remote when a server is reachable, localStorage otherwise.
+
+   Set LEADERBOARD_URL to your deployed server (e.g. the Render URL) when
+   the game is hosted elsewhere (GitHub Pages). Leave it empty when the
+   game is served BY server/index.js — same-origin /api/scores is tried
+   automatically — or to fall back to a local, this-browser-only board.
+   -------------------------------------------------------------------------- */
+
+const LEADERBOARD_URL = '';   // e.g. 'https://office-break.onrender.com'
+
+const Leaderboard = {
+    mode: null,     // 'remote' | 'local'
+    base: '',
+
+    resolveBase: function () {
+        if (LEADERBOARD_URL) return LEADERBOARD_URL.replace(/\/+$/, '');
+        if (location.protocol === 'http:' || location.protocol === 'https:') return '';
+        return null;  // opened via file:// with no server configured
+    },
+
+    top: async function () {
+        if (this.mode !== 'local') {
+            const base = this.resolveBase();
+            if (base !== null) {
+                try {
+                    const res = await fetch(base + '/api/scores',
+                        { signal: AbortSignal.timeout(4000) });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && Array.isArray(data.scores)) {
+                            this.mode = 'remote';
+                            this.base = base;
+                            return data.scores;
+                        }
+                    }
+                } catch (err) { /* fall through to local */ }
+            }
+            this.mode = 'local';
+        }
+        return this.localScores();
+    },
+
+    localScores: function () {
+        try {
+            const list = JSON.parse(localStorage.getItem('office-break-lb') || '[]');
+            return Array.isArray(list) ? list : [];
+        } catch (err) {
+            return [];
+        }
+    },
+
+    submit: async function (initials, score) {
+        const entry = {
+            initials: initials,
+            score: score,
+            diff: state.diff,
+            date: new Date().toISOString().slice(0, 10)
+        };
+        if (this.mode === 'remote') {
+            try {
+                const res = await fetch(this.base + '/api/scores', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(entry),
+                    signal: AbortSignal.timeout(4000)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && Array.isArray(data.scores)) return data.scores;
+                }
+            } catch (err) { /* degrade to local below */ }
+            this.mode = 'local';
+        }
+        const list = this.localScores();
+        list.push(entry);
+        list.sort(function (a, b) { return b.score - a.score; });
+        const kept = list.slice(0, 50);
+        localStorage.setItem('office-break-lb', JSON.stringify(kept));
+        return kept;
+    }
+};
+
+/* --------------------------------------------------------------------------
    Sound — tiny WebAudio synth, no assets
    -------------------------------------------------------------------------- */
 
@@ -274,6 +357,8 @@ const state = {
     keys: {},
     jumpQueued: false,
     diff: 'standard',
+    enteringInitials: false,
+    lbToken: 0,
 
     player: null,
     boss: null,
@@ -376,6 +461,22 @@ function boot() {
         }
     });
 
+    document.getElementById('initials-ok').addEventListener('click', confirmInitials);
+    document.querySelectorAll('.initial-slot').forEach(function (slot, i) {
+        slot.querySelector('.init-char').addEventListener('click', function () {
+            lbEntry.slot = i;
+            renderInitialsUI();
+        });
+        slot.querySelector('.init-up').addEventListener('click', function () {
+            lbEntry.slot = i;
+            cycleInitial(1);
+        });
+        slot.querySelector('.init-down').addEventListener('click', function () {
+            lbEntry.slot = i;
+            cycleInitial(-1);
+        });
+    });
+
     Sound.muted = localStorage.getItem('office-break-muted') === '1';
     document.getElementById('mute-btn').textContent = Sound.muted ? '🔇' : '🔊';
     document.getElementById('mute-btn').addEventListener('click', function () {
@@ -395,6 +496,10 @@ function setupInput() {
         }
 
         if (!state.running) {
+            if (state.enteringInitials) {
+                handleInitialsKey(e);
+                return;
+            }
             const startVisible = !document.getElementById('start-overlay').classList.contains('hidden');
             const overVisible = !document.getElementById('game-over').classList.contains('hidden');
             // Brief lockout so mashing jump at the moment of death doesn't
@@ -488,6 +593,8 @@ function startGame() {
     document.getElementById('pause-overlay').classList.add('hidden');
 
     Sound.ensure();
+    state.enteringInitials = false;
+    state.lbToken++;
     state.running = true;
     state.gameOver = false;
     state.paused = false;
@@ -597,6 +704,7 @@ function endGame(reason) {
     document.getElementById('go-stats').textContent =
         state.stats.hops + ' messages hopped · ' + state.stats.smashed + ' smashed by the boss';
     document.getElementById('game-over').classList.remove('hidden');
+    showLeaderboardFlow(final);
 }
 
 /* --------------------------------------------------------------------------
@@ -1753,6 +1861,126 @@ function draw(now) {
     drawDangerVignette();
     drawCountdown(now);
     drawBossIndicator();
+}
+
+/* --------------------------------------------------------------------------
+   Leaderboard UI — arcade-style initials entry + top-10 board
+   -------------------------------------------------------------------------- */
+
+const LB_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const lbEntry = { chars: ['A', 'A', 'A'], slot: 0, score: 0 };
+
+async function showLeaderboardFlow(final) {
+    const token = ++state.lbToken;
+    document.getElementById('initials-entry').classList.add('hidden');
+    document.getElementById('lb-board').classList.add('hidden');
+    document.getElementById('lb-note').textContent = '';
+
+    const scores = await Leaderboard.top();
+    if (token !== state.lbToken || !state.gameOver) return;
+
+    const qualifies = final >= 1 &&
+        (scores.length < 10 || final > scores[9].score);
+    if (qualifies) {
+        startInitialsEntry(final);
+    } else {
+        renderBoard(scores, null);
+    }
+}
+
+function startInitialsEntry(final) {
+    lbEntry.score = final;
+    lbEntry.slot = 0;
+    const saved = (localStorage.getItem('office-break-initials') || 'AAA').split('');
+    for (let i = 0; i < 3; i++) {
+        lbEntry.chars[i] = LB_CHARSET.indexOf(saved[i]) !== -1 ? saved[i] : 'A';
+    }
+    state.enteringInitials = true;
+    document.getElementById('initials-entry').classList.remove('hidden');
+    renderInitialsUI();
+}
+
+function renderInitialsUI() {
+    document.querySelectorAll('.initial-slot').forEach(function (slot, i) {
+        slot.classList.toggle('active', i === lbEntry.slot);
+        slot.querySelector('.init-char').textContent = lbEntry.chars[i];
+    });
+}
+
+function cycleInitial(dir) {
+    const i = LB_CHARSET.indexOf(lbEntry.chars[lbEntry.slot]);
+    const next = (i + dir + LB_CHARSET.length) % LB_CHARSET.length;
+    lbEntry.chars[lbEntry.slot] = LB_CHARSET[next];
+    renderInitialsUI();
+}
+
+function handleInitialsKey(e) {
+    const code = e.code;
+    if (code === 'Enter') return confirmInitials();
+    if (code === 'ArrowUp') return cycleInitial(1);
+    if (code === 'ArrowDown') return cycleInitial(-1);
+    if (code === 'ArrowLeft') {
+        lbEntry.slot = Math.max(0, lbEntry.slot - 1);
+        return renderInitialsUI();
+    }
+    if (code === 'ArrowRight') {
+        lbEntry.slot = Math.min(2, lbEntry.slot + 1);
+        return renderInitialsUI();
+    }
+    if (code === 'Backspace') {
+        lbEntry.slot = Math.max(0, lbEntry.slot - 1);
+        lbEntry.chars[lbEntry.slot] = 'A';
+        return renderInitialsUI();
+    }
+    const ch = (e.key || '').toUpperCase();
+    if (ch.length === 1 && LB_CHARSET.indexOf(ch) !== -1) {
+        lbEntry.chars[lbEntry.slot] = ch;
+        lbEntry.slot = Math.min(2, lbEntry.slot + 1);
+        renderInitialsUI();
+    }
+}
+
+async function confirmInitials() {
+    if (!state.enteringInitials) return;
+    state.enteringInitials = false;
+    const initials = lbEntry.chars.join('');
+    localStorage.setItem('office-break-initials', initials);
+    document.getElementById('initials-entry').classList.add('hidden');
+
+    const token = state.lbToken;
+    const scores = await Leaderboard.submit(initials, lbEntry.score);
+    if (token !== state.lbToken || !state.gameOver) return;
+    renderBoard(scores, { initials: initials, score: lbEntry.score });
+    Sound.best();
+}
+
+function renderBoard(scores, you) {
+    const list = document.getElementById('lb-list');
+    list.innerHTML = '';
+    let highlighted = false;
+    scores.slice(0, 10).forEach(function (s, i) {
+        const li = document.createElement('li');
+        const isYou = !highlighted && you &&
+            s.initials === you.initials && s.score === you.score;
+        if (isYou) {
+            li.classList.add('lb-you');
+            highlighted = true;
+        }
+        li.innerHTML =
+            '<span class="lb-rank">' + (i + 1) + '.</span>' +
+            '<span class="lb-initials">' + String(s.initials).replace(/[<>&]/g, '') + '</span>' +
+            '<span class="lb-score">' + Math.floor(s.score) + '</span>';
+        list.appendChild(li);
+    });
+    if (!scores.length) {
+        const li = document.createElement('li');
+        li.innerHTML = '<span class="lb-rank">–</span><span class="lb-initials">no scores yet</span>';
+        list.appendChild(li);
+    }
+    document.getElementById('lb-note').textContent = Leaderboard.mode === 'remote'
+        ? 'Global leaderboard'
+        : 'Local board (this browser only) — deploy the server for a global one';
+    document.getElementById('lb-board').classList.remove('hidden');
 }
 
 /* --------------------------------------------------------------------------
