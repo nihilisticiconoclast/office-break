@@ -47,9 +47,12 @@ Where the scores live depends on how the game is running — the client
 auto-detects, in this order:
 
 1. **A live API server** (`LEADERBOARD_URL`, or same-origin `/api/scores`
-   when the bundled server hosts the game): shared board stored by the
-   server. Instant submissions, but on Render's free tier the file system
-   is ephemeral, so the board resets on restarts.
+   when a bundled server hosts the game): shared board with instant,
+   friction-free submissions. Two implementations ship in `server/`:
+   `main.ts` for **Deno Deploy** (recommended — free, never sleeps, and
+   its KV storage is durable, so the board never resets) and `index.js`
+   for Node/Render (free tier has an ephemeral disk, so the board resets
+   on restarts unless you attach a paid persistent disk).
 2. **GitHub-only mode** (no server needed — recommended with GitHub
    Pages): the board is `scores.json` **committed to this repo**, so it
    never resets. Submitting opens a prefilled GitHub issue; the
@@ -60,6 +63,25 @@ auto-detects, in this order:
    `game.js` (already set to this repo).
 3. **Local fallback** (no server, no network): a this-browser-only board
    in `localStorage`, labeled as such.
+
+#### Deno Deploy (recommended: online, persistent, no friction)
+
+One deployment hosts the game *and* a leaderboard that never resets
+(Deno KV is durable storage, and free projects don't sleep):
+
+1. Go to [dash.deno.com](https://dash.deno.com) and sign in with GitHub.
+2. **New Project → Import from GitHub** → pick this repo.
+3. Set the entrypoint to `server/main.ts` (no framework preset, no build
+   step) and deploy.
+4. Play at `https://<project>.deno.dev` — that's it. Scores submit
+   instantly in-game (no GitHub account needed) and survive restarts and
+   redeploys. Pushing to `main` auto-redeploys.
+
+If you'd rather keep playing from GitHub Pages, set `LEADERBOARD_URL` in
+`game.js` to your `https://<project>.deno.dev` URL and push.
+
+Run it locally with:
+`deno run --allow-net --allow-read --unstable-kv server/main.ts`
 
 #### GitHub-only setup (persistent, free)
 
