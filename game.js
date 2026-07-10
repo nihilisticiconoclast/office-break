@@ -117,6 +117,8 @@ const CHART_TITLES = [
 ];
 
 const BOSS_QUOTES = ['DENIED.', 'CANCELLED.', 'NOT APPROVED.', 'SEEN. IGNORED.', 'REJECTED.', 'NO.'];
+const BOSS_QUOTES_ANGRY = ['WHO APPROVED THIS?', 'MY OFFICE. NOW.', 'UNACCEPTABLE.', 'CC-ING HR.'];
+const SKIP_QUOTES = ['EXPLAIN.', 'I REPORT TO THE BOARD.', 'SYNERGY. NOW.', 'THIS IS A P0.'];
 
 const REACTION_EMOJI = ['👍', '❤️', '😂', '😮', '🎉', '💯'];
 
@@ -489,6 +491,8 @@ const state = {
     nextStormAt: 0,
     call: null,
     nextCallAt: 0,
+    bossPhase: 0,
+    boss2: null,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
 };
@@ -840,6 +844,8 @@ function startGame() {
     state.nextStormAt = CONFIG.STORM_FIRST_MS;
     state.call = null;
     state.nextCallAt = CONFIG.CALL_FIRST_MS;
+    state.bossPhase = 0;
+    state.boss2 = null;
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
@@ -861,6 +867,9 @@ function startGame() {
     };
 
     state.boss = {
+        variant: 'boss',
+        speedScale: 1,
+        shoutText: 'GET BACK TO WORK!',
         x: state.W * 0.15 - 23, y: -10,
         w: 46, h: 76,
         vx: 0, vy: 0,
@@ -1162,7 +1171,8 @@ function smashMessage(index) {
     Sound.smash();
     if (state.stats) state.stats.smashed++;
     if (state.boss && Math.random() < 0.35) {
-        state.boss.quote = pick(BOSS_QUOTES);
+        const pool = state.bossPhase >= 1 && Math.random() < 0.5 ? BOSS_QUOTES_ANGRY : BOSS_QUOTES;
+        state.boss.quote = pick(pool);
         state.boss.quoteUntil = performance.now() + 1200;
     }
 }
@@ -1434,8 +1444,7 @@ function updatePlayer(t) {
     }
 }
 
-function updateBoss(t, now, elapsedSec) {
-    const b = state.boss;
+function updateBossObj(b, t, now, elapsedSec) {
     const p = state.player;
 
     b.bobPhase += 0.05 * t;
@@ -1450,8 +1459,10 @@ function updateBoss(t, now, elapsedSec) {
     }
 
     const bdiff = DIFFICULTY[state.diff] || DIFFICULTY.standard;
-    b.runSpeed = Math.min(CONFIG.BOSS_RUN_MAX,
-        (CONFIG.BOSS_RUN_SPEED + elapsedSec * CONFIG.BOSS_RAMP * bdiff.ramp) * bdiff.boss);
+    const phaseBoost = state.bossPhase >= 2 ? 0.7 : state.bossPhase >= 1 ? 0.35 : 0;
+    b.runSpeed = (Math.min(CONFIG.BOSS_RUN_MAX,
+        (CONFIG.BOSS_RUN_SPEED + elapsedSec * CONFIG.BOSS_RAMP * bdiff.ramp) * bdiff.boss) +
+        phaseBoost) * b.speedScale;
     if (b.smashCooldown > 0) b.smashCooldown -= t;
     if (b.smashPose > 0) b.smashPose -= t;
 
@@ -1510,7 +1521,7 @@ function updateBoss(t, now, elapsedSec) {
             b.mode = 'normal';
             b.vy = Math.max(b.vy, 1);
         }
-        checkBossCatch();
+        checkBossCatch(b);
         return;
     }
 
@@ -1536,7 +1547,7 @@ function updateBoss(t, now, elapsedSec) {
             if (idx !== -1) smashMessage(idx);
             b.grounded = false;
             b.platform = null;
-            b.smashCooldown = CONFIG.BOSS_SMASH_COOLDOWN;
+            b.smashCooldown = Math.max(30, CONFIG.BOSS_SMASH_COOLDOWN - state.bossPhase * 8);
             b.smashPose = 16;
         }
     } else if (reading) {
@@ -1572,7 +1583,7 @@ function updateBoss(t, now, elapsedSec) {
     if (b.grounded && b.windup <= 0 && b.smashCooldown <= 0 && !reading) {
         if (tgt.y > b.y + b.h + 20 && b.platform !== tgt.platform) {
             // Target is below: smash through the floor to follow
-            b.windup = CONFIG.BOSS_WINDUP;
+            b.windup = CONFIG.BOSS_WINDUP - state.bossPhase * 3;
         } else if (tgt.y + tgt.h < b.y - 60 && Math.abs(dx) < 220) {
             // Player is above and close: jump after them
             b.vy = CONFIG.JUMP_VELOCITY * 0.95;
@@ -1602,7 +1613,7 @@ function updateBoss(t, now, elapsedSec) {
         }
     }
 
-    checkBossCatch();
+    checkBossCatch(b);
 }
 
 /* --------------------------------------------------------------------------
@@ -1749,13 +1760,14 @@ function updateDecoy(t) {
     if (d.y > state.H + 40) state.decoy = null;
 }
 
-function checkBossCatch() {
-    const b = state.boss;
+function checkBossCatch(b) {
     const p = state.player;
     const inset = 8;
     if (p.x + p.w > b.x + inset && p.x < b.x + b.w - inset &&
         p.y + p.h > b.y + inset && p.y < b.y + b.h - inset) {
-        endGame('The boss caught you. Back to your desk.');
+        endGame(b.variant === 'skip'
+            ? 'The skip-level manager caught you. Escalated.'
+            : 'The boss caught you. Back to your desk.');
     }
 }
 
@@ -2063,9 +2075,8 @@ function drawPlayer() {
     ctx.restore();
 }
 
-function drawBoss(now) {
+function drawBossObj(b, now) {
     const ctx = state.ctx;
-    const b = state.boss;
     if (b.mode === 'stairs') return;   // out of play, off the bottom
     const bob = b.grounded ? 0 : Math.sin(b.bobPhase) * 2;
     const angry = b.chasing;
@@ -2076,8 +2087,10 @@ function drawBoss(now) {
 
     ctx.lineCap = 'round';
 
-    const suit = '#2b2b33';
+    const suit = b.variant === 'skip' ? '#4d4d57' : '#2b2b33';
+    const tieColor = b.variant === 'skip' ? '#0078d4' : '#c4314b';
     const skinTone = angry ? '#e89a7e' : '#e8b48f';
+    const sleevesRolled = state.bossPhase >= 2 && b.variant === 'boss';
 
     // Legs
     ctx.strokeStyle = '#1e1e24';
@@ -2098,6 +2111,14 @@ function drawBoss(now) {
         const reach = Math.sin(b.bobPhase * 2) * 3;
         ctx.moveTo(-12, 28); ctx.lineTo(-22, 40 + reach);
         ctx.moveTo(12, 28);  ctx.lineTo(22, 38 - reach);
+        if (sleevesRolled) {
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.strokeStyle = skinTone;
+            ctx.lineWidth = 6;
+            ctx.moveTo(-18, 35 + reach); ctx.lineTo(-22, 40 + reach);
+            ctx.moveTo(18, 34 - reach);  ctx.lineTo(22, 38 - reach);
+        }
     } else {
         // Arms crossed-ish while waiting
         ctx.moveTo(-12, 30); ctx.lineTo(0, 38);
@@ -2124,9 +2145,14 @@ function drawBoss(now) {
     ctx.moveTo(-5, 23); ctx.lineTo(5, 23); ctx.lineTo(0, 36);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = '#c4314b';
+    ctx.fillStyle = tieColor;
     ctx.beginPath();
-    ctx.moveTo(-2, 24); ctx.lineTo(2, 24); ctx.lineTo(3, 40); ctx.lineTo(0, 44); ctx.lineTo(-3, 40);
+    if (state.bossPhase >= 1 && b.variant === 'boss') {
+        // Tie loosened and swung askew — he means business now
+        ctx.moveTo(-2, 25); ctx.lineTo(2, 24); ctx.lineTo(7, 39); ctx.lineTo(5, 44); ctx.lineTo(1, 40);
+    } else {
+        ctx.moveTo(-2, 24); ctx.lineTo(2, 24); ctx.lineTo(3, 40); ctx.lineTo(0, 44); ctx.lineTo(-3, 40);
+    }
     ctx.closePath();
     ctx.fill();
 
@@ -2199,7 +2225,7 @@ function drawBoss(now) {
 
     // Shout bubble when the chase begins
     if (b.chasing && now < b.shoutUntil) {
-        const text = 'GET BACK TO WORK!';
+        const text = b.shoutText;
         ctx.font = 'bold 13px "Segoe UI", sans-serif';
         const tw = ctx.measureText(text).width;
         const bx = clamp(b.x + b.w / 2 - tw / 2 - 10, 6, state.W - tw - 26);
@@ -2472,7 +2498,8 @@ function draw(now) {
     drawParticles();
     drawPM(now);
     drawPlayer();
-    drawBoss(now);
+    drawBossObj(state.boss, now);
+    if (state.boss2) drawBossObj(state.boss2, now);
     drawDangerVignette();
     drawCountdown(now);
     drawBossIndicator();
@@ -2610,6 +2637,50 @@ function renderBoard(scores, you) {
 }
 
 /* --------------------------------------------------------------------------
+   Boss escalation phases
+   -------------------------------------------------------------------------- */
+
+function onBossPhase(phase, now) {
+    const b = state.boss;
+    if (phase === 1) {
+        showToast('👔 The boss loosens his tie', 'He is getting faster…');
+        b.quote = 'WHO APPROVED THIS?';
+        b.quoteUntil = now + 1600;
+        Sound.shout();
+    } else if (phase === 2) {
+        showToast('💪 Sleeves are ROLLED UP', 'Telegraphs are shorter. Good luck.');
+        b.quote = 'UNACCEPTABLE.';
+        b.quoteUntil = now + 1600;
+        Sound.shout();
+    } else if (phase === 3 && !state.boss2) {
+        state.boss2 = {
+            variant: 'skip',
+            speedScale: 0.88,
+            shoutText: 'EXPLAIN YOURSELVES.',
+            x: clamp(state.player.x + (Math.random() < 0.5 ? -220 : 220), 0, state.W - 46),
+            y: -140,
+            w: 46, h: 76,
+            vx: 0, vy: 0,
+            grounded: false,
+            platform: null,
+            mode: 'catchup',
+            chasing: true,
+            runSpeed: CONFIG.BOSS_RUN_SPEED,
+            windup: 0,
+            stairsTimer: 0,
+            smashCooldown: 0,
+            smashPose: 0,
+            shoutUntil: now + CONFIG.BOSS_SHOUT_MS,
+            quote: '',
+            quoteUntil: 0,
+            bobPhase: 0
+        };
+        showToast('🚨 Your skip-level manager has joined the chat', 'Two of them now. Run.');
+        Sound.shout();
+    }
+}
+
+/* --------------------------------------------------------------------------
    Toasts — Teams-style notification cards, top-right of the chat
    -------------------------------------------------------------------------- */
 
@@ -2660,7 +2731,8 @@ function gameLoop(now) {
         updatePM(t);
         updateDecoy(t);
         updateCall(t, elapsedSec);
-        updateBoss(t, now, elapsedSec);
+        updateBossObj(state.boss, t, now, elapsedSec);
+        if (state.running && state.boss2) updateBossObj(state.boss2, t, now, elapsedSec);
     }
     updateParticles(t);
 
@@ -2674,6 +2746,13 @@ function gameLoop(now) {
     if (milestone > state.lastMilestone) {
         state.lastMilestone = milestone;
         showToast('\ud83c\udfc6 ' + (milestone * 250) + ' points', pick(MILESTONE_FLAVOR));
+    }
+
+    // Boss escalation phases
+    const phase = state.score >= 2500 ? 3 : state.score >= 1500 ? 2 : state.score >= 750 ? 1 : 0;
+    if (phase > state.bossPhase) {
+        state.bossPhase = phase;
+        onBossPhase(phase, now);
     }
 
     // Every 500 points you get dragged into a busier channel
