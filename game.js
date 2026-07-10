@@ -407,6 +407,12 @@ const CONFIG = {
     SPAWN_AIR_MIN: 30,           // clear air between one message's bottom and the next one's top
     SPAWN_AIR_MAX: 78,
 
+    CALL_FIRST_MS: 50000,        // first incoming call
+    CALL_GAP_MIN_MS: 60000,      // then every 60-100s
+    CALL_GAP_MAX_MS: 100000,
+    CALL_RING_FRAMES: 480,       // gives up after ~8 seconds
+    CALL_ANSWER_STUN: 150,       // ~2.5s trapped if you answer
+
     STORM_FIRST_MS: 35000,       // first reply-all storm
     STORM_GAP_MIN_MS: 45000,     // then every 45-75s
     STORM_GAP_MAX_MS: 75000,
@@ -481,6 +487,8 @@ const state = {
     reportDropQueued: false,
     storm: 0,
     nextStormAt: 0,
+    call: null,
+    nextCallAt: 0,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
 };
@@ -649,6 +657,12 @@ function boot() {
     });
 
     document.getElementById('initials-ok').addEventListener('click', confirmInitials);
+    document.getElementById('call-decline').addEventListener('click', function () {
+        if (state.call) endCall('declined');
+    });
+    document.getElementById('call-accept').addEventListener('click', function () {
+        if (state.call) endCall('answered');
+    });
     document.getElementById('lb-github-submit').addEventListener('click', function () {
         if (Leaderboard.lastIssueUrl) window.open(Leaderboard.lastIssueUrl, '_blank');
     });
@@ -716,6 +730,10 @@ function setupInput() {
         }
         if ((e.code === 'KeyX' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) {
             state.reportDropQueued = true;
+            return;
+        }
+        if (e.code === 'KeyC' && !e.repeat && state.call) {
+            endCall('declined');
             return;
         }
         if (state.paused) return;
@@ -820,6 +838,9 @@ function startGame() {
     state.reportDropQueued = false;
     state.storm = 0;
     state.nextStormAt = CONFIG.STORM_FIRST_MS;
+    state.call = null;
+    state.nextCallAt = CONFIG.CALL_FIRST_MS;
+    document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
     state.player = {
@@ -901,6 +922,8 @@ function endGame(reason) {
     state.gameOver = true;
     state.gameOverAt = performance.now();
     haptic(120);
+    state.call = null;
+    document.getElementById('call-card').classList.add('hidden');
     const final = Math.floor(state.score);
     const isNewBest = final > state.best && state.best > 0;
     if (final > state.best) {
@@ -1580,6 +1603,55 @@ function updateBoss(t, now, elapsedSec) {
     }
 
     checkBossCatch();
+}
+
+/* --------------------------------------------------------------------------
+   Incoming calls — an opaque call card covers part of the play area until
+   you decline it (C or the ✕), it rings out, or you make the mistake of
+   answering.
+   -------------------------------------------------------------------------- */
+
+function startCall(elapsedMs) {
+    const c = COLLEAGUES[Math.floor(Math.random() * COLLEAGUES.length)];
+    state.call = { name: c.name, t: CONFIG.CALL_RING_FRAMES, ring: 0 };
+    state.nextCallAt = elapsedMs + randRange(CONFIG.CALL_GAP_MIN_MS, CONFIG.CALL_GAP_MAX_MS);
+    const card = document.getElementById('call-card');
+    document.getElementById('call-name').textContent = c.name;
+    const av = document.getElementById('call-avatar');
+    av.textContent = initials(c.name);
+    av.style.background = c.color;
+    // Random horizontal spot so it hides a different slice of chat each time
+    card.style.left = Math.round(15 + Math.random() * 55) + '%';
+    card.classList.remove('hidden');
+}
+
+function endCall(kind) {
+    const c = state.call;
+    state.call = null;
+    document.getElementById('call-card').classList.add('hidden');
+    if (!c) return;
+    if (kind === 'missed') {
+        showToast('📞 Missed call — ' + c.name, 'They will definitely mention this later');
+    } else if (kind === 'answered') {
+        state.player.stun = CONFIG.CALL_ANSWER_STUN;
+        showToast('📞 You answered?!', 'This meeting could have been an email');
+        Sound.tone(220, 0.3, 'sawtooth', 0.06, 130);
+    }
+}
+
+function updateCall(t, elapsedSec) {
+    if (state.call) {
+        state.call.t -= t;
+        state.call.ring -= t;
+        if (state.call.ring <= 0) {
+            state.call.ring = 90;
+            Sound.tone(740, 0.18, 'sine', 0.05);
+            setTimeout(function () { Sound.tone(880, 0.22, 'sine', 0.05); }, 220);
+        }
+        if (state.call.t <= 0) endCall('missed');
+    } else if (elapsedSec * 1000 >= state.nextCallAt) {
+        startCall(elapsedSec * 1000);
+    }
 }
 
 // The project manager paces along their own message, tracking the player.
@@ -2587,6 +2659,7 @@ function gameLoop(now) {
     if (state.running) {
         updatePM(t);
         updateDecoy(t);
+        updateCall(t, elapsedSec);
         updateBoss(t, now, elapsedSec);
     }
     updateParticles(t);

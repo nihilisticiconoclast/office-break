@@ -287,6 +287,77 @@ html, body {
 }
 #mute-btn:hover { background: #f0f0f0; }
 
+/* Incoming call card — opaque on purpose: it blocks your view */
+
+#call-card {
+    position: absolute;
+    top: 64px;
+    left: 50%;
+    width: 270px;
+    background: #292929;
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 7;
+    animation: call-wiggle 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #call-card { animation: none; }
+}
+
+@keyframes call-wiggle {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(-0.8deg); }
+    75% { transform: rotate(0.8deg); }
+}
+
+.call-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #c239b3;
+    color: #fff;
+    font-weight: 600;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.call-text { flex: 1; min-width: 0; }
+
+#call-name {
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.call-sub { color: #adadad; font-size: 12px; margin-top: 2px; }
+
+.call-actions { display: flex; gap: 8px; }
+
+.call-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    color: #fff;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+.call-btn.accept { background: #6bb700; }
+.call-btn.decline { background: #c4314b; }
+.call-btn:hover { filter: brightness(1.15); }
+
 /* Teams-style notification toast */
 
 #toast {
