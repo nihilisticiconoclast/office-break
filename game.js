@@ -836,6 +836,20 @@ function boot() {
     document.getElementById('call-accept').addEventListener('click', function () {
         if (state.call) endCall('answered');
     });
+    const appealBtn = document.getElementById('appeal-btn');
+    const APPEALS = [
+        'Appeal denied. Automatically. — HR',
+        'Denied harder.',
+        'The appeals process has been outsourced.'
+    ];
+    appealBtn.addEventListener('click', function () {
+        const n = Number(appealBtn.dataset.n || 0);
+        appealBtn.textContent = APPEALS[Math.min(n, APPEALS.length - 1)];
+        appealBtn.dataset.n = n + 1;
+        if (n >= APPEALS.length - 1) appealBtn.disabled = true;
+        Sound.tone(200, 0.15, 'sawtooth', 0.04, 130);
+    });
+
     document.getElementById('lb-github-submit').addEventListener('click', function () {
         if (Leaderboard.lastIssueUrl) window.open(Leaderboard.lastIssueUrl, '_blank');
     });
@@ -1179,6 +1193,10 @@ function endGame(reason) {
     document.getElementById('go-stats').textContent =
         state.stats.hops + ' messages hopped · ' + state.stats.smashed + ' smashed by the boss';
     document.getElementById('go-review').textContent = performanceReview(final, reason);
+    const appeal = document.getElementById('appeal-btn');
+    appeal.textContent = 'Appeal rating';
+    appeal.dataset.n = 0;
+    appeal.disabled = false;
     award('first-run');
     if ((performance.now() - state.startTime) / 1000 >= 60) award('survive-60');
     if (state.daily) award('routine');
