@@ -352,7 +352,8 @@ const ACHIEVEMENTS = [
     { id: 'not-now',     name: 'Not Now',                  desc: 'Decline an incoming call' },
     { id: 'stairs',      name: 'Pushed Down the Stairs',   desc: 'Send a boss off the bottom of the chat' },
     { id: 'org-chart',   name: 'Org Chart Explorer',       desc: 'Meet the skip-level manager' },
-    { id: 'routine',     name: 'Routine',                  desc: 'Finish a daily challenge' }
+    { id: 'routine',     name: 'Routine',                  desc: 'Finish a daily challenge' },
+    { id: 'emotional-support', name: 'Emotional Support',   desc: 'Sit with the office cat' }
 ];
 
 let achSet = new Set();
@@ -648,6 +649,7 @@ const state = {
     presenceLabelUntil: 0,
     shareTimer: 0,
     nextShareAt: 0,
+    cat: null,
     daily: false,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
@@ -1054,6 +1056,7 @@ function startGame() {
     state.presenceLabelUntil = 0;
     state.shareTimer = 0;
     state.nextShareAt = 70000 + Math.random() * 40000;
+    state.cat = null;
     document.getElementById('share-accident').classList.add('hidden');
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
@@ -1415,6 +1418,22 @@ function spawnFromBottom() {
 
     const m = createMessage(state.H + 12);
     state.messages.push(m);
+
+    // Someone's WFH cat wanders in very occasionally and claims a message
+    if (!state.cat && lrand() < 0.04) {
+        const cm = createMessage(state.H + 12);
+        state.messages.push(cm);
+        state.cat = {
+            m: cm,
+            x: cm.x + 8,
+            dir: 1,
+            mode: 'walking',
+            sitAt: cm.x + cm.w * (0.3 + lrand() * 0.4),
+            purring: false,
+            animPhase: 0
+        };
+        return;
+    }
 
     // HR occasionally rides in too: slow, polite, and legally binding
     if (!state.hr && lrand() < 0.05) {
@@ -1899,6 +1918,7 @@ function updateBossObj(b, t, now, elapsedSec) {
         if (b.smashCooldown <= 0) {
             for (let i = 0; i < state.messages.length; i++) {
                 const m = state.messages[i];
+                if (state.cat && m === state.cat.m) continue;   // not that one
                 if (b.x + b.w > m.x && b.x < m.x + m.w &&
                     b.y + b.h > m.y && b.y < m.y + m.h) {
                     smashMessage(i);
@@ -1997,8 +2017,18 @@ function updateBossObj(b, t, now, elapsedSec) {
     if (b.grounded && b.windup <= 0 && b.smashCooldown <= 0 && !reading &&
         !(b.printerStun > 0) && !(b.confused > 0)) {
         if (tgt.y > b.y + b.h + 20 && b.platform !== tgt.platform) {
-            // Target is below: smash through the floor to follow
-            b.windup = CONFIG.BOSS_WINDUP - state.bossPhase * 3;
+            if (state.cat && b.platform === state.cat.m) {
+                // He raises his arms… sees the cat… lowers his arms.
+                if (!b.catQuoted) {
+                    b.catQuoted = true;
+                    b.quote = '…the cat stays.';
+                    b.quoteUntil = now + 1800;
+                }
+                b.smashCooldown = 40;
+            } else {
+                // Target is below: smash through the floor to follow
+                b.windup = CONFIG.BOSS_WINDUP - state.bossPhase * 3;
+            }
         } else if (tgt.y + tgt.h < b.y - 60 && Math.abs(dx) < 220) {
             // Player is above and close: jump after them
             b.vy = CONFIG.JUMP_VELOCITY * 0.95;
@@ -2249,6 +2279,38 @@ function updateCall(t, elapsedSec) {
     } else if (elapsedSec * 1000 >= state.nextCallAt) {
         startCall(elapsedSec * 1000);
     }
+}
+
+// The office cat: strolls onto a message, picks a spot, and sits. The boss
+// refuses to smash any platform the cat is sitting on. Cats outrank VPs.
+function updateCat(t) {
+    const cat = state.cat;
+    if (!cat) return;
+    const p = state.player;
+
+    if (state.messages.indexOf(cat.m) === -1 || cat.m.y + cat.m.h < -20) {
+        if (state.messages.indexOf(cat.m) === -1) {
+            state.particles.push({
+                x: cat.x, y: cat.m.y - 20, vx: 0, vy: -0.8,
+                size: 0, rot: 0, vr: 0, life: 1, emoji: '😾'
+            });
+        }
+        state.cat = null;
+        return;
+    }
+
+    if (cat.mode === 'walking') {
+        cat.animPhase += 0.12 * t;
+        cat.x += cat.dir * 0.8 * t;
+        if (cat.x < cat.m.x + 4) { cat.x = cat.m.x + 4; cat.dir = 1; }
+        if (cat.x > cat.m.x + cat.m.w - 22) { cat.x = cat.m.x + cat.m.w - 22; cat.dir = -1; }
+        if (Math.abs(cat.x - cat.sitAt) < 3) cat.mode = 'sitting';
+    }
+
+    const near = Math.abs((p.x + p.w / 2) - (cat.x + 9)) < 55 &&
+        Math.abs((p.y + p.h) - cat.m.y) < 50;
+    cat.purring = near && cat.mode === 'sitting';
+    if (cat.purring) award('emotional-support');
 }
 
 // HR: platform-bound like the PM but slower. If she catches you holding
@@ -3100,6 +3162,64 @@ function drawPickups(now) {
     }
 }
 
+function drawCat(now) {
+    const cat = state.cat;
+    if (!cat) return;
+    const ctx = state.ctx;
+    const y = cat.m.y;
+    const bob = cat.mode === 'walking' && !REDUCED_MOTION ? Math.sin(cat.animPhase) * 1 : 0;
+
+    ctx.save();
+    ctx.translate(cat.x + 9, y + bob);
+    if (cat.dir < 0) ctx.scale(-1, 1);
+
+    ctx.fillStyle = '#8c8c94';
+    if (cat.mode === 'sitting') {
+        ctx.beginPath();
+        ctx.ellipse(0, -7, 8, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(5, -14, 5, 0, Math.PI * 2);
+        ctx.fill();
+    } else {
+        ctx.beginPath();
+        ctx.ellipse(-1, -6, 9, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(7, -10, 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    const hx = cat.mode === 'sitting' ? 5 : 7;
+    const hy = cat.mode === 'sitting' ? -14 : -10;
+    ctx.beginPath();
+    ctx.moveTo(hx - 4, hy - 3); ctx.lineTo(hx - 2, hy - 8); ctx.lineTo(hx, hy - 4);
+    ctx.moveTo(hx + 1, hy - 4); ctx.lineTo(hx + 3, hy - 8); ctx.lineTo(hx + 5, hy - 3);
+    ctx.fill();
+    ctx.strokeStyle = '#8c8c94';
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    const flick = REDUCED_MOTION ? 0 : Math.sin(now / 400) * 2;
+    ctx.moveTo(-8, -6);
+    ctx.quadraticCurveTo(-13, -12 + flick, -11, -16 + flick);
+    ctx.stroke();
+    ctx.fillStyle = '#7fb069';
+    ctx.beginPath();
+    ctx.arc(hx + 1, hy - 1, 1, 0, Math.PI * 2);
+    ctx.arc(hx + 3.5, hy - 1, 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    if (cat.purring) {
+        ctx.font = 'italic 10px "Segoe UI", sans-serif';
+        ctx.fillStyle = '#8a8a8a';
+        ctx.textAlign = 'center';
+        ctx.fillText('purrrrr…', cat.x + 9, y - 26 + (REDUCED_MOTION ? 0 : Math.sin(now / 250)));
+        ctx.textAlign = 'left';
+    }
+}
+
 function drawHR(now) {
     const hr = state.hr;
     if (!hr) return;
@@ -3456,6 +3576,7 @@ function draw(now) {
     drawParticles();
     drawPM(now);
     drawHR(now);
+    drawCat(now);
     drawIntern(now);
     drawPrinter();
     drawPlayer();
@@ -3706,6 +3827,7 @@ function gameLoop(now) {
     if (state.running) {
         updatePM(t);
         updateHR(t);
+        updateCat(t);
         updateIntern(t);
         updateDecoy(t);
         updateCall(t, elapsedSec);
