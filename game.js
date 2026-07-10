@@ -646,6 +646,8 @@ const state = {
     presence: 0,
     presenceTimer: 500,
     presenceLabelUntil: 0,
+    shareTimer: 0,
+    nextShareAt: 0,
     daily: false,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
@@ -1036,6 +1038,9 @@ function startGame() {
     state.presence = 0;
     state.presenceTimer = 500 + Math.random() * 400;
     state.presenceLabelUntil = 0;
+    state.shareTimer = 0;
+    state.nextShareAt = 70000 + Math.random() * 40000;
+    document.getElementById('share-accident').classList.add('hidden');
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
@@ -1157,6 +1162,7 @@ function endGame(reason) {
     state.gameOverAt = performance.now();
     haptic(120);
     Sound.stopMusic();
+    document.getElementById('share-accident').classList.add('hidden');
     state.call = null;
     document.getElementById('call-card').classList.add('hidden');
     const final = Math.floor(state.score);
@@ -1979,6 +1985,29 @@ function updateBossObj(b, t, now, elapsedSec) {
     }
 
     checkBossCatch(b);
+}
+
+/* --------------------------------------------------------------------------
+   Screen-share accident — for a few seconds everyone can see exactly what
+   you were browsing. Decorative only; the game continues underneath.
+   -------------------------------------------------------------------------- */
+
+function updateShare(t, elapsedSec) {
+    if (state.shareTimer > 0) {
+        state.shareTimer -= t;
+        if (state.shareTimer <= 0) {
+            document.getElementById('share-accident').classList.add('hidden');
+            showToast('🖥️ Screen sharing stopped', 'Hopefully nobody was looking');
+        }
+        return;
+    }
+    if (elapsedSec * 1000 >= state.nextShareAt) {
+        state.shareTimer = 300;   // 5 seconds of public shame
+        state.nextShareAt = elapsedSec * 1000 + 90000 + Math.random() * 50000;
+        document.getElementById('share-accident').classList.remove('hidden');
+        showToast('🖥️ Screen sharing started', 'Presenting to: Everyone');
+        Sound.tone(700, 0.12, 'sine', 0.05);
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -3608,6 +3637,7 @@ function gameLoop(now) {
         updateDecoy(t);
         updateCall(t, elapsedSec);
         updatePresence(t);
+        updateShare(t, elapsedSec);
         updatePrinter(t, elapsedSec);
         updateBossObj(state.boss, t, now, elapsedSec);
         if (state.running && state.boss2) updateBossObj(state.boss2, t, now, elapsedSec);
