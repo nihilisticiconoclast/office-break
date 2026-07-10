@@ -493,6 +493,7 @@ const state = {
     nextCallAt: 0,
     bossPhase: 0,
     boss2: null,
+    intern: null,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
 };
@@ -846,6 +847,7 @@ function startGame() {
     state.nextCallAt = CONFIG.CALL_FIRST_MS;
     state.bossPhase = 0;
     state.boss2 = null;
+    state.intern = null;
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
@@ -1118,6 +1120,23 @@ function spawnFromBottom() {
 
     const m = createMessage(state.H + 12);
     state.messages.push(m);
+
+    // The intern scurries in occasionally: friendly, quick, drops supplies
+    if (!state.intern && Math.random() < 0.06) {
+        state.intern = {
+            x: m.x + 10,
+            y: m.y - 40,
+            w: 24, h: 40,
+            vx: (Math.random() < 0.5 ? -1 : 1) * 2.6,
+            vy: 0,
+            grounded: true,
+            platform: m,
+            dropCooldown: 200,
+            animPhase: 0,
+            sayUntil: 0,
+            sayCooldown: 0
+        };
+    }
 
     // Occasionally a pickup rides in on the message: coffee (speed + double
     // jump) or a document (becomes a boss-distracting report).
@@ -1663,6 +1682,78 @@ function updateCall(t, elapsedSec) {
     } else if (elapsedSec * 1000 >= state.nextCallAt) {
         startCall(elapsedSec * 1000);
     }
+}
+
+// The intern: friendly, oblivious, sprinting across the chat dropping
+// coffee and documents behind them. Falls off edges, lands below, and
+// eventually scurries out of frame.
+function updateIntern(t) {
+    const n = state.intern;
+    if (!n) return;
+    const p = state.player;
+
+    n.animPhase += Math.abs(n.vx) * 0.07 * t;
+    n.x += n.vx * t;
+    if (n.x < 0) { n.x = 0; n.vx = Math.abs(n.vx); }
+    if (n.x > state.W - n.w) { n.x = state.W - n.w; n.vx = -Math.abs(n.vx); }
+
+    const prevBottom = n.y + n.h;
+    if (n.grounded) {
+        const m = n.platform;
+        const stillThere = m && state.messages.indexOf(m) !== -1 &&
+            n.x + n.w > m.x + 2 && n.x < m.x + m.w - 2;
+        if (stillThere) {
+            n.y = m.y - n.h;
+            n.vy = 0;
+        } else {
+            n.grounded = false;
+            n.platform = null;
+        }
+    }
+    if (!n.grounded) {
+        n.vy += CONFIG.GRAVITY * t;
+        n.y += n.vy * t;
+        if (n.vy >= 0) {
+            for (let i = 0; i < state.messages.length; i++) {
+                const m = state.messages[i];
+                if (n.x + n.w > m.x + 2 && n.x < m.x + m.w - 2 &&
+                    prevBottom <= m.prevY + 1 && n.y + n.h >= m.y - 1) {
+                    n.y = m.y - n.h;
+                    n.vy = 0;
+                    n.grounded = true;
+                    n.platform = m;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Drop a pickup behind them now and then
+    if (n.dropCooldown > 0) n.dropCooldown -= t;
+    if (n.grounded && n.dropCooldown <= 0 && state.pickups.length < 2) {
+        const canDoc = !state.report && !state.decoy &&
+            !state.pickups.some(function (pk) { return pk.type === 'doc'; });
+        const type = canDoc && Math.random() < 0.4 ? 'doc' : 'coffee';
+        state.pickups.push({
+            type: type,
+            m: n.platform,
+            ox: clamp(n.x + n.w / 2 - n.platform.x, 12, n.platform.w - 12)
+        });
+        n.dropCooldown = 260;
+        Sound.tone(600, 0.06, 'triangle', 0.03, 750);
+    }
+
+    // A cheery word for a passing colleague
+    if (n.sayCooldown > 0) n.sayCooldown -= t;
+    const near = Math.abs((p.x + p.w / 2) - (n.x + n.w / 2)) < 70 &&
+        Math.abs(p.y - n.y) < 60;
+    if (near && n.sayCooldown <= 0) {
+        n.sayUntil = performance.now() + 1200;
+        n.sayCooldown = 300;
+    }
+
+    // Scurried out of frame
+    if (n.y > state.H + 60 || n.y + n.h < -20) state.intern = null;
 }
 
 // The project manager paces along their own message, tracking the player.
@@ -2334,6 +2425,81 @@ function drawPickups(now) {
     }
 }
 
+function drawIntern(now) {
+    const n = state.intern;
+    if (!n) return;
+    const ctx = state.ctx;
+    const swing = n.grounded ? Math.sin(n.animPhase) * 0.8 : 0.4;
+
+    ctx.save();
+    ctx.translate(n.x + n.w / 2, n.y);
+    if (n.vx < 0) ctx.scale(-1, 1);
+    ctx.lineCap = 'round';
+
+    // Legs — always hustling
+    ctx.strokeStyle = '#3f4c5c';
+    ctx.lineWidth = 4.5;
+    ctx.beginPath();
+    ctx.moveTo(-2, 27); ctx.lineTo(-2 + swing * 7, 38);
+    ctx.moveTo(2, 27);  ctx.lineTo(2 - swing * 7, 38);
+    ctx.stroke();
+
+    // Hoodie torso
+    ctx.fillStyle = '#7a86c9';
+    roundRect(ctx, -7, 11, 14, 17, 4);
+    ctx.fill();
+    // Stack of papers under one arm
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#c8c8c8';
+    ctx.lineWidth = 1;
+    ctx.fillRect(4, 16, 8, 10);
+    ctx.strokeRect(4, 16, 8, 10);
+
+    // Head
+    ctx.fillStyle = '#e8b48f';
+    ctx.beginPath();
+    ctx.arc(0, 5, 6, 0, Math.PI * 2);
+    ctx.fill();
+    // Hair
+    ctx.fillStyle = '#2f2f2f';
+    ctx.beginPath();
+    ctx.arc(0, 3.6, 6, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.fill();
+    // Headphones
+    ctx.strokeStyle = '#242424';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(0, 4, 7, Math.PI * 1.1, Math.PI * 1.9);
+    ctx.stroke();
+    ctx.fillStyle = '#242424';
+    ctx.beginPath();
+    ctx.arc(-6.4, 5.5, 2, 0, Math.PI * 2);
+    ctx.arc(6.4, 5.5, 2, 0, Math.PI * 2);
+    ctx.fill();
+    // Eye
+    ctx.fillStyle = '#242424';
+    ctx.beginPath();
+    ctx.arc(2.8, 5.5, 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    if (n.sayUntil > now) {
+        ctx.font = 'bold 10px "Segoe UI", sans-serif';
+        const text = 'good luck!!';
+        const tw = ctx.measureText(text).width;
+        const bx = clamp(n.x + n.w / 2 - tw / 2 - 7, 6, state.W - tw - 20);
+        roundRect(ctx, bx, n.y - 20, tw + 14, 16, 8);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.strokeStyle = '#498205';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#498205';
+        ctx.fillText(text, bx + 7, n.y - 8);
+    }
+}
+
 // The project manager: platform-bound, bespectacled, armed with a clipboard
 function drawPM(now) {
     const pm = state.pm;
@@ -2497,6 +2663,7 @@ function draw(now) {
     drawPickups(now);
     drawParticles();
     drawPM(now);
+    drawIntern(now);
     drawPlayer();
     drawBossObj(state.boss, now);
     if (state.boss2) drawBossObj(state.boss2, now);
@@ -2729,6 +2896,7 @@ function gameLoop(now) {
     updatePlayer(t);
     if (state.running) {
         updatePM(t);
+        updateIntern(t);
         updateDecoy(t);
         updateCall(t, elapsedSec);
         updateBossObj(state.boss, t, now, elapsedSec);
