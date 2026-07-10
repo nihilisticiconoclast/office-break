@@ -509,6 +509,8 @@ const state = {
     boss2: null,
     intern: null,
     hr: null,
+    dndTimer: 0,
+    lastSeen: null,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
 };
@@ -864,6 +866,8 @@ function startGame() {
     state.boss2 = null;
     state.intern = null;
     state.hr = null;
+    state.dndTimer = 0;
+    state.lastSeen = null;
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
@@ -1182,6 +1186,9 @@ function spawnFromBottom() {
     } else if (Math.random() < 0.09 && !state.pickups.some(function (p) { return p.type === 'doc'; }) &&
         !state.report && !state.decoy) {
         state.pickups.push({ type: 'doc', m: m, ox: 20 + Math.random() * Math.max(10, m.w - 40) });
+    } else if (Math.random() < 0.045 && !state.pickups.some(function (p) { return p.type === 'dnd'; }) &&
+        state.dndTimer <= 0) {
+        state.pickups.push({ type: 'dnd', m: m, ox: 20 + Math.random() * Math.max(10, m.w - 40) });
     }
 }
 
@@ -1451,6 +1458,11 @@ function updatePlayer(t) {
                 state.report = { phase: 'writing', t: 600 };   // 10 seconds
                 Sound.tone(520, 0.1, 'triangle', 0.06, 700);
                 showToast('📄 Document collected', 'Writing the report…');
+            } else if (pk.type === 'dnd') {
+                state.dndTimer = 300;   // 5 seconds of invisibility
+                state.lastSeen = { x: p.x, y: p.y, w: p.w, h: p.h, platform: p.platform };
+                Sound.tone(360, 0.2, 'sine', 0.06, 240);
+                showToast('🔕 Do Not Disturb', 'Management can’t see you for 5 seconds');
             } else {
                 state.buffTimer = 360;   // ~6 seconds
                 p.airJump = 1;
@@ -1462,6 +1474,10 @@ function updatePlayer(t) {
     if (state.buffTimer > 0) {
         state.buffTimer -= t;
         if (state.buffTimer <= 0) p.airJump = 0;
+    }
+    if (state.dndTimer > 0) {
+        state.dndTimer -= t;
+        if (state.dndTimer <= 0) state.lastSeen = null;
     }
 
     // Report: ten seconds of frantic typing, then it's ready to deploy
@@ -1583,8 +1599,9 @@ function updateBossObj(b, t, now, elapsedSec) {
     /* --- Normal mode: same platform physics as the player --- */
 
     // A freshly dropped report is irresistible — chase it instead of the
-    // player until it expires.
-    const tgt = state.decoy || p;
+    // player until it expires. On Do Not Disturb, he can only hunt the
+    // spot where he last saw you.
+    const tgt = state.decoy || (state.dndTimer > 0 && state.lastSeen ? state.lastSeen : p);
     const reading = state.decoy &&
         b.x + b.w > state.decoy.x - 12 && b.x < state.decoy.x + state.decoy.w + 12 &&
         b.y + b.h > state.decoy.y - 20 && b.y < state.decoy.y + state.decoy.h + 20;
@@ -1843,7 +1860,10 @@ function updatePM(t) {
         return;
     }
 
-    const target = clamp(p.x + p.w / 2 - pm.w / 2, pm.m.x + 3, pm.m.x + pm.m.w - pm.w - 3);
+    const seen = state.dndTimer <= 0;
+    const target = seen
+        ? clamp(p.x + p.w / 2 - pm.w / 2, pm.m.x + 3, pm.m.x + pm.m.w - pm.w - 3)
+        : pm.x;
     const dx = target - pm.x;
     const step = clamp(dx, -2.1 * t, 2.1 * t);
     pm.x += step;
@@ -1854,7 +1874,7 @@ function updatePM(t) {
     pm.y = pm.m.y - pm.h;
 
     if (pm.stunCooldown > 0) pm.stunCooldown -= t;
-    if (pm.stunCooldown <= 0 && p.stun <= 0 &&
+    if (seen && pm.stunCooldown <= 0 && p.stun <= 0 &&
         p.x + p.w > pm.x + 4 && p.x < pm.x + pm.w - 4 &&
         p.y + p.h > pm.y + 6 && p.y < pm.y + pm.h - 4) {
         p.stun = 55;                 // ~0.9s of forced status update
@@ -1927,6 +1947,7 @@ function updateDecoy(t) {
 }
 
 function checkBossCatch(b) {
+    if (state.dndTimer > 0) return;   // he can't see you
     const p = state.player;
     const inset = 8;
     if (p.x + p.w > b.x + inset && p.x < b.x + b.w - inset &&
@@ -2156,6 +2177,7 @@ function drawPlayer() {
     const swing = running ? Math.sin(p.animPhase) : 0;
 
     ctx.save();
+    if (state.dndTimer > 0) ctx.globalAlpha = 0.55;   // ghosting past management
     ctx.translate(p.x + p.w / 2, p.y);
     if (p.facing < 0) ctx.scale(-1, 1);
     if (p.squash > 0) {
@@ -2239,6 +2261,20 @@ function drawPlayer() {
     ctx.stroke();
 
     ctx.restore();
+
+    // Presence dot: red DND while invisible
+    if (state.dndTimer > 0) {
+        ctx.fillStyle = '#c4314b';
+        ctx.beginPath();
+        ctx.arc(p.x + p.w - 2, p.y + 2, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(p.x + p.w - 4.2, p.y + 2);
+        ctx.lineTo(p.x + p.w + 0.2, p.y + 2);
+        ctx.stroke();
+    }
 }
 
 function drawBossObj(b, now) {
@@ -2497,6 +2533,9 @@ function drawPickups(now) {
     }
     if (state.storm > 0) {
         pill('📣 reply-all storm! ' + Math.ceil(state.storm / 60) + 's', 'rgba(216, 59, 1, 0.92)');
+    }
+    if (state.dndTimer > 0) {
+        pill('🔕 invisible ' + Math.ceil(state.dndTimer / 60) + 's', 'rgba(90, 90, 90, 0.92)');
     }
 }
 
