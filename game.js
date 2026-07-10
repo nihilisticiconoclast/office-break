@@ -626,6 +626,7 @@ const state = {
     lastSeen: null,
     combo: 0,
     comboTimer: 0,
+    meetingFlash: 0,
     daily: false,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
@@ -1010,6 +1011,7 @@ function startGame() {
     state.lastSeen = null;
     state.combo = 0;
     state.comboTimer = 0;
+    state.meetingFlash = 0;
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
@@ -1475,6 +1477,14 @@ function updateWorld(t, elapsedSec) {
     for (let i = 0; i < state.messages.length; i++) {
         lowestBottom = Math.max(lowestBottom, state.messages[i].y + state.messages[i].h);
     }
+    // Meeting dwell decays when nobody is standing in the meeting
+    for (let i = 0; i < state.messages.length; i++) {
+        const mm = state.messages[i];
+        if (mm.type === 'invite' && mm.dwell > 0 && mm !== (state.player && state.player.platform)) {
+            mm.dwell = Math.max(0, mm.dwell - t * 2);
+        }
+    }
+
     // Reply-all storm: periodic bursts where the chat floods with tiny replies
     if (state.storm > 0) {
         state.storm -= t;
@@ -1555,6 +1565,20 @@ function updatePlayer(t) {
         if (stillThere) {
             p.y = m.y - p.h;       // ride the platform upward
             p.vy = 0;
+            // Loiter on a meeting invite and the meeting simply… begins
+            if (m.type === 'invite' && !m.joined) {
+                m.dwell = (m.dwell || 0) + t;
+                if (m.dwell > 180) {
+                    m.joined = true;
+                    p.stun = 130;
+                    state.meetingFlash = 90;
+                    showToast('📅 You’ve joined ' + m.lines[0], 'Camera on. Everyone can see you.');
+                    Sound.tone(520, 0.12, 'sine', 0.06);
+                    setTimeout(function () { Sound.tone(660, 0.15, 'sine', 0.06); }, 180);
+                }
+            } else if (p.platform && p.platform.type === 'invite') {
+                /* already joined once — safe now */
+            }
         } else {
             p.grounded = false;
             p.platform = null;
@@ -3044,6 +3068,39 @@ function drawPM(now) {
     }
 }
 
+function drawMeetingEffects(t) {
+    const ctx = state.ctx;
+    // Red 'camera on' border while trapped in a meeting you just joined
+    if (state.meetingFlash > 0) {
+        state.meetingFlash -= t;
+        const a = clamp(state.meetingFlash / 90, 0, 1) * 0.8;
+        ctx.strokeStyle = 'rgba(196, 49, 75, ' + a + ')';
+        ctx.lineWidth = 6;
+        ctx.strokeRect(3, 3, state.W - 6, state.H - 6);
+        ctx.font = 'bold 12px "Segoe UI", sans-serif';
+        ctx.fillStyle = 'rgba(196, 49, 75, ' + a + ')';
+        ctx.fillText('● REC', 14, state.H - 14);
+    }
+    // Join-progress ring above the player while loitering on an invite
+    const p = state.player;
+    if (p && p.grounded && p.platform && p.platform.type === 'invite' &&
+        !p.platform.joined && p.platform.dwell > 20) {
+        const frac = clamp(p.platform.dwell / 180, 0, 1);
+        const cx = p.x + p.w / 2;
+        const cy = p.y - 14;
+        ctx.strokeStyle = '#d83b01';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 8, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+        ctx.stroke();
+        ctx.font = '10px "Segoe UI", sans-serif';
+        ctx.fillStyle = '#d83b01';
+        ctx.textAlign = 'center';
+        ctx.fillText('joining…', cx, cy - 12);
+        ctx.textAlign = 'left';
+    }
+}
+
 function drawDangerVignette() {
     // Red glow bleeding in from the top as the scroll pulls you toward the
     // archive — the closer you are, the hotter it gets.
@@ -3117,6 +3174,7 @@ function draw(now) {
     drawPlayer();
     drawBossObj(state.boss, now);
     if (state.boss2) drawBossObj(state.boss2, now);
+    drawMeetingEffects(1);
     drawDangerVignette();
     drawCountdown(now);
     drawBossIndicator();
