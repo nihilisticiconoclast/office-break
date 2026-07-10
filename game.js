@@ -511,6 +511,8 @@ const state = {
     hr: null,
     dndTimer: 0,
     lastSeen: null,
+    combo: 0,
+    comboTimer: 0,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
 };
@@ -868,6 +870,8 @@ function startGame() {
     state.hr = null;
     state.dndTimer = 0;
     state.lastSeen = null;
+    state.combo = 0;
+    state.comboTimer = 0;
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
@@ -1417,6 +1421,21 @@ function updatePlayer(t) {
                         Sound.land();
                     }
                     if (m !== p.lastLanding) {
+                        // Combo: keep landing on LOWER platforms to build it
+                        const prev = p.lastLanding;
+                        const lower = !prev || state.messages.indexOf(prev) === -1 ||
+                            m.y > prev.y + 10;
+                        if (lower) {
+                            state.combo++;
+                            state.comboTimer = 150;   // 2.5s to find the next one
+                            if (state.combo >= 2) {
+                                state.particles.push({
+                                    x: p.x + p.w / 2, y: m.y - 8,
+                                    vx: 0, vy: -1.1, size: 0, rot: 0, vr: 0,
+                                    life: 1, text: '×' + state.combo
+                                });
+                            }
+                        }
                         p.lastLanding = m;
                         state.stats.hops++;
                     }
@@ -1478,6 +1497,10 @@ function updatePlayer(t) {
     if (state.dndTimer > 0) {
         state.dndTimer -= t;
         if (state.dndTimer <= 0) state.lastSeen = null;
+    }
+    if (state.comboTimer > 0) {
+        state.comboTimer -= t;
+        if (state.comboTimer <= 0) state.combo = 0;
     }
 
     // Report: ten seconds of frantic typing, then it's ready to deploy
@@ -1980,9 +2003,9 @@ function updateParticles(t) {
         const pt = state.particles[i];
         pt.x += pt.vx * t;
         pt.y += pt.vy * t;
-        if (!pt.emoji) pt.vy += (pt.dust ? 0.05 : 0.25) * t;   // reactions just float
+        if (!pt.emoji && !pt.text) pt.vy += (pt.dust ? 0.05 : 0.25) * t;   // reactions/labels float
         pt.rot += pt.vr * t;
-        pt.life -= (pt.emoji ? 0.012 : pt.dust ? 0.045 : 0.025) * t;
+        pt.life -= (pt.emoji ? 0.012 : pt.text ? 0.03 : pt.dust ? 0.045 : 0.025) * t;
         if (pt.life <= 0) state.particles.splice(i, 1);
     }
 }
@@ -2448,12 +2471,17 @@ function drawParticles() {
     const ctx = state.ctx;
     for (let i = 0; i < state.particles.length; i++) {
         const pt = state.particles[i];
-        if (pt.emoji) {
+        if (pt.emoji || pt.text) {
             ctx.save();
             ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 1.4));
-            ctx.font = '15px "Segoe UI", sans-serif';
+            if (pt.text) {
+                ctx.font = 'bold 15px "Segoe UI", sans-serif';
+                ctx.fillStyle = '#6264a7';
+            } else {
+                ctx.font = '15px "Segoe UI", sans-serif';
+            }
             ctx.textAlign = 'center';
-            ctx.fillText(pt.emoji, pt.x, pt.y);
+            ctx.fillText(pt.emoji || pt.text, pt.x, pt.y);
             ctx.restore();
             continue;
         }
@@ -2536,6 +2564,9 @@ function drawPickups(now) {
     }
     if (state.dndTimer > 0) {
         pill('🔕 invisible ' + Math.ceil(state.dndTimer / 60) + 's', 'rgba(90, 90, 90, 0.92)');
+    }
+    if (state.combo >= 2) {
+        pill('⚡ combo ×' + (1 + Math.min(state.combo, 20) * 0.1).toFixed(1), 'rgba(98, 100, 167, 0.95)');
     }
 }
 
@@ -3092,7 +3123,8 @@ function gameLoop(now) {
     document.getElementById('tc-report').classList.toggle('hidden',
         !(state.report && state.report.phase === 'ready'));
 
-    state.score = elapsedSec * CONFIG.POINTS_PER_SECOND;
+    const comboMult = 1 + Math.min(state.combo, 20) * 0.1;
+    state.score += CONFIG.POINTS_PER_SECOND * (t * 16.667 / 1000) * comboMult;
     document.getElementById('score').textContent = Math.floor(state.score);
 
     const milestone = Math.floor(state.score / 250);
