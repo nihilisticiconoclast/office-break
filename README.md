@@ -168,6 +168,29 @@ For a quick local test on the same Wi-Fi instead: run
   rides in on her own message. She can't leave it, but she paces along
   it to follow you — touch her and you're trapped in a "quick sync" for
   a moment, which is a long time with a boss overhead.
+- **Hilda Rowe from HR** also patrols her own policy-reminder messages,
+  slowly. Touch her while carrying a report and it's confiscated —
+  proper channels, please.
+- The **intern** scurries across platforms in headphones, dropping
+  coffee and documents behind them. Friendly. Wishes you luck.
+- The rare **🔕 Do Not Disturb** pickup makes you invisible to
+  management for 5 seconds — bosses hunt your last known position and
+  the PM loses track of you entirely.
+- **Reply-all storms** hit every minute or so: the chat floods with
+  tiny one-liner ledges and scrolls faster for six chaotic seconds.
+- **Incoming calls** cover part of your view with a ringing call card:
+  decline with `C` (or the ✕), let it ring out, or answer it and lose
+  2.5 seconds to a meeting that could have been an email.
+- The boss **escalates**: tie loosened at 750 points, sleeves rolled up
+  at 1,500, and at 2,500 the skip-level manager joins the chase.
+- **Combo descent**: chain landings on lower platforms to build a score
+  multiplier (up to ×3). Hovering is safe; descending pays.
+- **📅 Daily challenge** (start screen): the layout is seeded from
+  today's date so everyone plays the identical chat; daily scores are
+  tagged on the leaderboard.
+- Every run ends with a generated **performance review**, a lo-fi
+  synth loop plays while you work, and there are **12 achievements**
+  to unlock along the way.
 - The game ends when:
   - the boss catches you,
   - you fall off the bottom of the chat, or
