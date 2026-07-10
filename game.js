@@ -1186,7 +1186,33 @@ function endGame(reason) {
         localStorage.setItem('office-break-best', String(final));
         document.getElementById('best').textContent = final;
     }
-    if (isNewBest) { Sound.best(); } else { Sound.over(); }
+    if (isNewBest) {
+        Sound.best();
+        // Colleagues erupt: reaction confetti from the top of the chat
+        for (let i = 0; i < 26; i++) {
+            state.particles.push({
+                x: Math.random() * state.W,
+                y: -10 - Math.random() * 60,
+                vx: (Math.random() - 0.5) * 1.6,
+                vy: 1.2 + Math.random() * 1.8,
+                size: 0, rot: 0, vr: 0,
+                life: 2.2,
+                emoji: pick(REACTION_EMOJI),
+                confetti: true
+            });
+        }
+        const fans = pick(COLLEAGUES).name;
+        setTimeout(function () {
+            if (!state.running) {
+                showToast('👏 Kudos from ' + fans + ' and ' + (3 + Math.floor(Math.random() * 9)) + ' others',
+                    'New personal best — it’s going in the newsletter');
+            }
+        }, 1100);
+        // let the celebration render behind the dialog for a moment
+        drawParticlesOnly(120);
+    } else {
+        Sound.over();
+    }
     document.getElementById('new-best').classList.toggle('hidden', !isNewBest);
     document.getElementById('game-over-reason').textContent = reason;
     document.getElementById('final-score').textContent = final;
@@ -2494,7 +2520,8 @@ function updateParticles(t) {
         const pt = state.particles[i];
         pt.x += pt.vx * t;
         pt.y += pt.vy * t;
-        if (!pt.emoji && !pt.text) pt.vy += (pt.dust ? 0.05 : 0.25) * t;   // reactions/labels float
+        if (pt.confetti) pt.vy += 0.02 * t;                                 // confetti drifts down
+        else if (!pt.emoji && !pt.text) pt.vy += (pt.dust ? 0.05 : 0.25) * t;   // reactions/labels float
         pt.rot += pt.vr * t;
         pt.life -= (pt.emoji ? 0.012 : pt.text ? 0.03 : pt.dust ? 0.045 : 0.025) * t;
         if (pt.life <= 0) state.particles.splice(i, 1);
@@ -3570,6 +3597,19 @@ function renderBoard(scores, you) {
     ghBtn.classList.toggle('hidden',
         !(Leaderboard.mode === 'github' && you && Leaderboard.lastIssueUrl));
     document.getElementById('lb-board').classList.remove('hidden');
+}
+
+// Short post-game animation: keeps particles (confetti) moving and
+// redraws the frozen scene beneath the game-over dialog.
+function drawParticlesOnly(frames) {
+    function step() {
+        if (state.running || frames <= 0) return;
+        frames--;
+        updateParticles(1);
+        draw(performance.now());
+        requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
 }
 
 /* --------------------------------------------------------------------------
