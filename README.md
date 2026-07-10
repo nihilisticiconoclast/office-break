@@ -188,9 +188,20 @@ For a quick local test on the same Wi-Fi instead: run
 - **📅 Daily challenge** (start screen): the layout is seeded from
   today's date so everyone plays the identical chat; daily scores are
   tagged on the leaderboard.
-- Every run ends with a generated **performance review**, a lo-fi
-  synth loop plays while you work, and there are **12 achievements**
-  to unlock along the way.
+- Every run ends with a generated **performance review** (appeals are
+  denied automatically), a lo-fi synth loop plays while you work, and
+  there are **13 achievements** to unlock along the way.
+- Also in the building: the boss's smashes sometimes fizzle ("🔇 You
+  appear to be on mute"), **meeting invites auto-start** if you loiter
+  on them for 3 seconds (camera on), a **printer** periodically falls
+  through the chat smashing what it hits (jams any boss it lands on —
+  "PC LOAD LETTER"), your **presence dot has a mind of its own**
+  ("Appear offline" briefly baffles the bosses), your screen
+  occasionally **shares itself** at the worst moment, a boss off the
+  bottom shows a Teams-style **"Reconnecting…"** spinner, beating your
+  best triggers **kudos confetti** from your colleagues, and — very
+  rarely — the **office cat** appears. The boss will not smash a
+  platform the cat is sitting on. The cat outranks everyone.
 - The game ends when:
   - the boss catches you,
   - you fall off the bottom of the chat, or
