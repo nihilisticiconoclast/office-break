@@ -86,8 +86,12 @@
                         <div class="tc-move">
                             <button id="tc-left" class="tc-btn" aria-label="Move left">◀</button>
                             <button id="tc-right" class="tc-btn" aria-label="Move right">▶</button>
+                            <button id="tc-down" class="tc-btn" aria-label="Drop through">⬇</button>
                         </div>
-                        <button id="tc-jump" class="tc-btn tc-jump" aria-label="Jump">⬆</button>
+                        <div class="tc-right">
+                            <button id="tc-report" class="tc-btn hidden" aria-label="Drop report">📄</button>
+                            <button id="tc-jump" class="tc-btn tc-jump" aria-label="Jump">⬆</button>
+                        </div>
                     </div>
 
                     <div id="start-overlay" class="overlay">
@@ -97,9 +101,11 @@
                             <ul class="how-to">
                                 <li><kbd>←</kbd> <kbd>→</kbd>&nbsp; move</li>
                                 <li><kbd>Space</kbd>&nbsp; jump</li>
+                                <li><kbd>↓</kbd> drop through &nbsp;·&nbsp; <kbd>X</kbd> drop report</li>
                                 <li><kbd>P</kbd> pause &nbsp;·&nbsp; <kbd>R</kbd> restart</li>
                                 <li>Ride the messages down &mdash; don't get scrolled off the top, don't fall off the bottom, and don't let the boss catch you.</li>
                             </ul>
+                            <div id="avatar-pick"></div>
                             <div class="difficulty">
                                 <button class="diff-btn" data-diff="chill">Chill</button>
                                 <button class="diff-btn active" data-diff="standard">Standard</button>

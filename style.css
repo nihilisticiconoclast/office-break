@@ -352,6 +352,29 @@ html, body {
 
 .tc-move { display: flex; gap: 14px; }
 
+.tc-right { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+/* Avatar picker on the start screen */
+
+#avatar-pick {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin: 0 0 16px;
+    flex-wrap: wrap;
+}
+
+.avatar-opt {
+    border: 2px solid transparent;
+    border-radius: 8px;
+    padding: 3px 5px 0;
+    background: #f6f6fb;
+    cursor: pointer;
+}
+
+.avatar-opt:hover { border-color: #c5c7e8; }
+.avatar-opt.active { border-color: var(--teams-purple); background: #ecedf8; }
+
 .tc-btn {
     pointer-events: auto;
     width: 64px;

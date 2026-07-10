@@ -120,6 +120,31 @@ const BOSS_QUOTES = ['DENIED.', 'CANCELLED.', 'NOT APPROVED.', 'SEEN. IGNORED.',
 
 const REACTION_EMOJI = ['👍', '❤️', '😂', '😮', '🎉', '💯'];
 
+const AVATARS = [
+    { name: 'Sam',   skin: '#e8b48f', hair: '#4a3222', shirt: '#2d8c6e', pants: '#33445c' },
+    { name: 'Alex',  skin: '#8d5524', hair: '#1b1b1b', shirt: '#c74634', pants: '#2b2b33' },
+    { name: 'Jo',    skin: '#f0c9a0', hair: '#c28e0e', shirt: '#0078d4', pants: '#3a3a3a' },
+    { name: 'Riley', skin: '#c68642', hair: '#5b3a29', shirt: '#8764b8', pants: '#26323f' },
+    { name: 'Kai',   skin: '#ffd7b3', hair: '#d1495b', shirt: '#e3a008', pants: '#33445c' },
+    { name: 'Max',   skin: '#a76a3f', hair: '#6f6f6f', shirt: '#455a64', pants: '#1e1e24' }
+];
+
+const PM_SENDER = { name: 'Paula Marsh · PM', color: '#d83b01' };
+
+const PM_PHRASES = [
+    'Quick status check: are we on track for the sprint goal?',
+    'Can you update the Jira board before the standup?',
+    'The Gantt chart says this was due yesterday',
+    "Let's timebox this discussion to fifteen minutes",
+    "I've scheduled a follow-up to discuss the follow-up",
+    "What's the confidence level on that estimate?",
+    'Can we get a RAG status on the workstream?',
+    'The burndown chart is looking more like a burn-up',
+    'Adding this to the risks and issues log as we speak'
+];
+
+const PM_STUN_LINES = ['Got a sec?', 'Quick sync!', 'One more thing…', 'While I have you—'];
+
 const MILESTONE_FLAVOR = [
     'Inbox zero energy',
     'Promotion pending…',
@@ -434,10 +459,16 @@ const state = {
 
     player: null,
     boss: null,
+    pm: null,
+    decoy: null,
+    report: null,
     messages: [],
     particles: [],
     pickups: [],
-    buffTimer: 0
+    buffTimer: 0,
+    reportDropQueued: false,
+    avatarIdx: 0,
+    avatarPal: AVATARS[0]
 };
 
 /* --------------------------------------------------------------------------
@@ -446,6 +477,72 @@ const state = {
 
 function initials(name) {
     return name.split(' ').map(function (w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
+}
+
+function paintAvatarPreview(ctx, pal) {
+    ctx.lineCap = 'round';
+    ctx.translate(22, 4);
+    // Legs
+    ctx.strokeStyle = pal.pants;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(-4, 34); ctx.lineTo(-4, 48);
+    ctx.moveTo(4, 34);  ctx.lineTo(4, 48);
+    ctx.stroke();
+    // Arms
+    ctx.strokeStyle = pal.shirt;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(-5, 19); ctx.lineTo(-8, 30);
+    ctx.moveTo(5, 19);  ctx.lineTo(8, 30);
+    ctx.stroke();
+    // Torso
+    ctx.fillStyle = pal.shirt;
+    roundRect(ctx, -8, 15, 16, 20, 4);
+    ctx.fill();
+    // Head
+    ctx.fillStyle = pal.skin;
+    ctx.beginPath();
+    ctx.arc(0, 8, 7.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Hair
+    ctx.fillStyle = pal.hair;
+    ctx.beginPath();
+    ctx.arc(0, 6.5, 7.5, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#242424';
+    ctx.beginPath();
+    ctx.arc(-2.5, 8, 1.2, 0, Math.PI * 2);
+    ctx.arc(2.5, 8, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function buildAvatarPicker() {
+    const wrap = document.getElementById('avatar-pick');
+    AVATARS.forEach(function (pal, i) {
+        const btn = document.createElement('button');
+        btn.className = 'avatar-opt' + (i === state.avatarIdx ? ' active' : '');
+        btn.title = pal.name;
+        const cnv = document.createElement('canvas');
+        cnv.width = 88;
+        cnv.height = 112;
+        cnv.style.width = '44px';
+        cnv.style.height = '56px';
+        const c = cnv.getContext('2d');
+        c.scale(2, 2);
+        paintAvatarPreview(c, pal);
+        btn.appendChild(cnv);
+        btn.addEventListener('click', function () {
+            state.avatarIdx = i;
+            state.avatarPal = pal;
+            localStorage.setItem('office-break-avatar', String(i));
+            document.querySelectorAll('.avatar-opt').forEach(function (b, j) {
+                b.classList.toggle('active', j === i);
+            });
+        });
+        wrap.appendChild(btn);
+    });
 }
 
 function buildSidebar() {
@@ -505,6 +602,10 @@ function boot() {
     document.getElementById('start-btn').addEventListener('click', startGame);
     document.getElementById('restart-btn').addEventListener('click', startGame);
     document.getElementById('resume-btn').addEventListener('click', togglePause);
+
+    state.avatarIdx = Math.abs(parseInt(localStorage.getItem('office-break-avatar') || '0', 10)) % AVATARS.length;
+    state.avatarPal = AVATARS[state.avatarIdx];
+    buildAvatarPicker();
 
     state.diff = localStorage.getItem('office-break-diff') || 'standard';
     document.querySelectorAll('.diff-btn').forEach(function (btn) {
@@ -599,6 +700,10 @@ function setupInput() {
             Sound.toggleMute();
             return;
         }
+        if ((e.code === 'KeyX' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) {
+            state.reportDropQueued = true;
+            return;
+        }
         if (state.paused) return;
 
         state.keys[e.code] = true;
@@ -645,6 +750,12 @@ function setupTouchControls() {
     bind('tc-jump',
         function () { if (state.running && !state.paused) state.jumpQueued = true; },
         null);
+    bind('tc-down',
+        function () { state.keys.ArrowDown = true; },
+        function () { state.keys.ArrowDown = false; });
+    bind('tc-report',
+        function () { if (state.running && !state.paused) state.reportDropQueued = true; },
+        null);
 }
 
 // A tiny buzz on Android when something breaks; silently ignored elsewhere
@@ -689,6 +800,11 @@ function startGame() {
     state.particles = [];
     state.pickups = [];
     state.buffTimer = 0;
+    state.pm = null;
+    state.decoy = null;
+    state.report = null;
+    state.reportDropQueued = false;
+    state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
     state.player = {
         x: state.W / 2 - 14, y: 0,
@@ -700,7 +816,11 @@ function startGame() {
         animPhase: 0,
         coyote: 0,
         jumpBuffer: 0,
-        squash: 0
+        squash: 0,
+        stun: 0,
+        airJump: 0,
+        dropIgnore: null,
+        lastLanding: null
     };
 
     state.boss = {
@@ -854,10 +974,11 @@ function gameClock() {
     return h + ':' + (m < 10 ? '0' : '') + m + (mins < 12 * 60 ? ' AM' : ' PM');
 }
 
-function createMessage(y) {
-    const own = Math.random() < 0.28;
-    const sender = own ? YOU : COLLEAGUES[Math.floor(Math.random() * COLLEAGUES.length)];
-    const content = pickMessageContent(own);
+function createMessage(y, forced) {
+    const own = forced ? false : Math.random() < 0.28;
+    const sender = forced ? forced.sender
+        : (own ? YOU : COLLEAGUES[Math.floor(Math.random() * COLLEAGUES.length)]);
+    const content = forced ? forced.content : pickMessageContent(own);
 
     // Meeting invites are their own wide-card layout
     if (content.type === 'invite') {
@@ -936,13 +1057,44 @@ function createMessage(y) {
 }
 
 function spawnFromBottom() {
+    // Every now and then a project manager rides in on their own message.
+    // They can't leave it — but they'll pace along it to corner you.
+    if (!state.pm && Math.random() < 0.08) {
+        spawnPM(state.H + 12);
+        return;
+    }
+
     const m = createMessage(state.H + 12);
     state.messages.push(m);
-    // Occasionally a coffee rides in on a message. One on screen at a time,
-    // and not while you're already caffeinated.
-    if (Math.random() < 0.09 && state.pickups.length === 0 && state.buffTimer <= 0) {
-        state.pickups.push({ m: m, ox: 20 + Math.random() * Math.max(10, m.w - 40) });
+
+    // Occasionally a pickup rides in on the message: coffee (speed + double
+    // jump) or a document (becomes a boss-distracting report).
+    if (Math.random() < 0.09 && !state.pickups.some(function (p) { return p.type === 'coffee'; }) &&
+        state.buffTimer <= 0) {
+        state.pickups.push({ type: 'coffee', m: m, ox: 20 + Math.random() * Math.max(10, m.w - 40) });
+    } else if (Math.random() < 0.09 && !state.pickups.some(function (p) { return p.type === 'doc'; }) &&
+        !state.report && !state.decoy) {
+        state.pickups.push({ type: 'doc', m: m, ox: 20 + Math.random() * Math.max(10, m.w - 40) });
     }
+}
+
+function spawnPM(y) {
+    const m = createMessage(y, {
+        sender: PM_SENDER,
+        content: { type: 'text', size: 'medium', text: pick(PM_PHRASES) }
+    });
+    state.messages.push(m);
+    state.pm = {
+        m: m,
+        x: m.x + m.w / 2 - 13,
+        w: 26, h: 46,
+        facing: 1,
+        animPhase: 0,
+        stunCooldown: 0,
+        sayUntil: 0,
+        sayText: ''
+    };
+    return state.pm;
 }
 
 function smashMessage(index) {
@@ -1043,10 +1195,19 @@ function updatePlayer(t) {
     const p = state.player;
     const prevBottom = p.y + p.h;
 
+    // A project manager has you cornered: no input until they finish
+    if (p.stun > 0) {
+        p.stun -= t;
+        state.jumpQueued = false;
+        p.vx *= Math.pow(0.6, t);
+    }
+
     // Horizontal movement
     let ax = 0;
-    if (state.keys.ArrowLeft || state.keys.KeyA) ax -= CONFIG.MOVE_ACCEL;
-    if (state.keys.ArrowRight || state.keys.KeyD) ax += CONFIG.MOVE_ACCEL;
+    if (p.stun <= 0) {
+        if (state.keys.ArrowLeft || state.keys.KeyA) ax -= CONFIG.MOVE_ACCEL;
+        if (state.keys.ArrowRight || state.keys.KeyD) ax += CONFIG.MOVE_ACCEL;
+    }
     const maxSpeed = CONFIG.MOVE_SPEED * (state.buffTimer > 0 ? 1.35 : 1);
     if (ax !== 0) {
         p.vx = clamp(p.vx + ax * t, -maxSpeed, maxSpeed);
@@ -1072,6 +1233,19 @@ function updatePlayer(t) {
         }
     } else if (p.coyote > 0) {
         p.coyote -= t;
+    }
+
+    // Down: drop through the platform you're standing on
+    if ((state.keys.ArrowDown || state.keys.KeyS) && p.grounded && p.stun <= 0) {
+        p.dropIgnore = p.platform;
+        p.grounded = false;
+        p.platform = null;
+        p.coyote = 0;
+        p.vy = Math.max(p.vy, 1.5);
+    }
+    if (p.dropIgnore &&
+        (state.messages.indexOf(p.dropIgnore) === -1 || p.y > p.dropIgnore.y + p.dropIgnore.h)) {
+        p.dropIgnore = null;
     }
 
     // Jump — buffered, with coyote grace
@@ -1105,6 +1279,7 @@ function updatePlayer(t) {
             const newBottom = p.y + p.h;
             for (let i = 0; i < state.messages.length; i++) {
                 const m = state.messages[i];
+                if (m === p.dropIgnore) continue;
                 if (p.x + p.w > m.x + 2 && p.x < m.x + m.w - 2 &&
                     prevBottom <= m.prevY + 1 && newBottom >= m.y - 1) {
                     if (p.vy > 6) {
@@ -1138,7 +1313,7 @@ function updatePlayer(t) {
         p.animPhase = 0;
     }
 
-    // Coffee pickups ride their message; grab one for a caffeine buff
+    // Pickups ride their message; walk into one to grab it
     for (let i = state.pickups.length - 1; i >= 0; i--) {
         const pk = state.pickups[i];
         if (state.messages.indexOf(pk.m) === -1) {
@@ -1150,15 +1325,48 @@ function updatePlayer(t) {
         if (p.x + p.w > cx - 11 && p.x < cx + 11 &&
             p.y + p.h > cy - 12 && p.y < cy + 12) {
             state.pickups.splice(i, 1);
-            state.buffTimer = 360;   // ~6 seconds
-            p.airJump = 1;
-            Sound.tone(660, 0.1, 'triangle', 0.06, 990);
-            showToast('☕ Coffee!', 'Speed up + one mid-air jump');
+            if (pk.type === 'doc') {
+                state.report = { phase: 'writing', t: 600 };   // 10 seconds
+                Sound.tone(520, 0.1, 'triangle', 0.06, 700);
+                showToast('📄 Document collected', 'Writing the report…');
+            } else {
+                state.buffTimer = 360;   // ~6 seconds
+                p.airJump = 1;
+                Sound.tone(660, 0.1, 'triangle', 0.06, 990);
+                showToast('☕ Coffee!', 'Speed up + one mid-air jump');
+            }
         }
     }
     if (state.buffTimer > 0) {
         state.buffTimer -= t;
         if (state.buffTimer <= 0) p.airJump = 0;
+    }
+
+    // Report: ten seconds of frantic typing, then it's ready to deploy
+    if (state.report && state.report.phase === 'writing') {
+        state.report.t -= t;
+        if (state.report.t <= 0) {
+            state.report = { phase: 'ready' };
+            Sound.tone(760, 0.15, 'triangle', 0.07);
+            showToast('📄 Report finished!', 'Press X (or 📄) to drop it as a decoy');
+        }
+    }
+    if (state.reportDropQueued) {
+        state.reportDropQueued = false;
+        if (state.report && state.report.phase === 'ready' && !state.decoy) {
+            state.report = null;
+            state.decoy = {
+                x: p.x + p.w / 2 - 9,
+                y: p.y + p.h - 22,
+                w: 18, h: 22,
+                vy: 0,
+                grounded: p.grounded,
+                platform: p.platform,
+                timer: 300   // distracts the boss for 5 seconds
+            };
+            Sound.tone(300, 0.12, 'square', 0.05, 180);
+            showToast('📄 Report deployed', 'The boss can’t resist unread documents');
+        }
     }
 
     // Lose conditions tied to the player
@@ -1251,8 +1459,15 @@ function updateBoss(t, now, elapsedSec) {
 
     /* --- Normal mode: same platform physics as the player --- */
 
+    // A freshly dropped report is irresistible — chase it instead of the
+    // player until it expires.
+    const tgt = state.decoy || p;
+    const reading = state.decoy &&
+        b.x + b.w > state.decoy.x - 12 && b.x < state.decoy.x + state.decoy.w + 12 &&
+        b.y + b.h > state.decoy.y - 20 && b.y < state.decoy.y + state.decoy.h + 20;
+
     const prevBottom = b.y + b.h;
-    const dx = (p.x + p.w / 2) - (b.x + b.w / 2);
+    const dx = (tgt.x + tgt.w / 2) - (b.x + b.w / 2);
 
     // Mid-windup he plants his feet and raises his arms — the telegraph —
     // then smashes the platform he's standing on and drops through.
@@ -1267,6 +1482,9 @@ function updateBoss(t, now, elapsedSec) {
             b.smashCooldown = CONFIG.BOSS_SMASH_COOLDOWN;
             b.smashPose = 16;
         }
+    } else if (reading) {
+        // Engrossed in the report — stands still, reads
+        b.vx *= Math.pow(0.6, t);
     } else {
         const dir = dx > 6 ? 1 : dx < -6 ? -1 : 0;
         // Very little steering in the air — he's a manager, not a missile.
@@ -1294,11 +1512,11 @@ function updateBoss(t, now, elapsedSec) {
         }
     }
 
-    if (b.grounded && b.windup <= 0 && b.smashCooldown <= 0) {
-        if (p.y > b.y + b.h + 20 && b.platform !== p.platform) {
-            // Player is below: smash through the floor to follow
+    if (b.grounded && b.windup <= 0 && b.smashCooldown <= 0 && !reading) {
+        if (tgt.y > b.y + b.h + 20 && b.platform !== tgt.platform) {
+            // Target is below: smash through the floor to follow
             b.windup = CONFIG.BOSS_WINDUP;
-        } else if (p.y + p.h < b.y - 60 && Math.abs(dx) < 220) {
+        } else if (tgt.y + tgt.h < b.y - 60 && Math.abs(dx) < 220) {
             // Player is above and close: jump after them
             b.vy = CONFIG.JUMP_VELOCITY * 0.95;
             b.grounded = false;
@@ -1328,6 +1546,101 @@ function updateBoss(t, now, elapsedSec) {
     }
 
     checkBossCatch();
+}
+
+// The project manager paces along their own message, tracking the player.
+// Touch them and you're trapped in a quick sync for a moment.
+function updatePM(t) {
+    const pm = state.pm;
+    if (!pm) return;
+    const p = state.player;
+
+    if (state.messages.indexOf(pm.m) === -1 || pm.m.y + pm.m.h < -20) {
+        state.pm = null;
+        return;
+    }
+
+    const target = clamp(p.x + p.w / 2 - pm.w / 2, pm.m.x + 3, pm.m.x + pm.m.w - pm.w - 3);
+    const dx = target - pm.x;
+    const step = clamp(dx, -2.1 * t, 2.1 * t);
+    pm.x += step;
+    if (Math.abs(step) > 0.2) {
+        pm.facing = step > 0 ? 1 : -1;
+        pm.animPhase += Math.abs(step) * 0.09;
+    }
+    pm.y = pm.m.y - pm.h;
+
+    if (pm.stunCooldown > 0) pm.stunCooldown -= t;
+    if (pm.stunCooldown <= 0 && p.stun <= 0 &&
+        p.x + p.w > pm.x + 4 && p.x < pm.x + pm.w - 4 &&
+        p.y + p.h > pm.y + 6 && p.y < pm.y + pm.h - 4) {
+        p.stun = 55;                 // ~0.9s of forced status update
+        pm.stunCooldown = 180;
+        pm.sayText = pick(PM_STUN_LINES);
+        pm.sayUntil = performance.now() + 1400;
+        Sound.tone(440, 0.18, 'sine', 0.06, 380);
+    }
+}
+
+// The deployed report: sits (or falls) where you left it and soaks up the
+// boss's attention until it expires.
+function updateDecoy(t) {
+    const d = state.decoy;
+    if (!d) return;
+
+    d.timer -= t;
+    if (d.timer <= 0) {
+        for (let i = 0; i < 8; i++) {
+            state.particles.push({
+                x: d.x + Math.random() * d.w,
+                y: d.y + Math.random() * d.h,
+                vx: (Math.random() - 0.5) * 4,
+                vy: -Math.random() * 3,
+                size: 3 + Math.random() * 4,
+                rot: Math.random() * Math.PI,
+                vr: (Math.random() - 0.5) * 0.3,
+                life: 1,
+                color: '#ffffff'
+            });
+        }
+        if (state.boss && state.boss.chasing) {
+            state.boss.quote = 'TL;DR.';
+            state.boss.quoteUntil = performance.now() + 1400;
+        }
+        state.decoy = null;
+        return;
+    }
+
+    const prevBottom = d.y + d.h;
+    if (d.grounded) {
+        const m = d.platform;
+        const stillThere = m && state.messages.indexOf(m) !== -1 &&
+            d.x + d.w > m.x && d.x < m.x + m.w;
+        if (stillThere) {
+            d.y = m.y - d.h;
+        } else {
+            d.grounded = false;
+            d.platform = null;
+        }
+    }
+    if (!d.grounded) {
+        d.vy += CONFIG.GRAVITY * t;
+        d.y += d.vy * t;
+        if (d.vy >= 0) {
+            for (let i = 0; i < state.messages.length; i++) {
+                const m = state.messages[i];
+                if (d.x + d.w > m.x && d.x < m.x + m.w &&
+                    prevBottom <= m.prevY + 1 && d.y + d.h >= m.y - 1) {
+                    d.y = m.y - d.h;
+                    d.vy = 0;
+                    d.grounded = true;
+                    d.platform = m;
+                    break;
+                }
+            }
+        }
+    }
+    if (d.y > state.H + 40) state.decoy = null;
 }
 
 function checkBossCatch() {
@@ -1571,9 +1884,10 @@ function drawPlayer() {
 
     ctx.lineCap = 'round';
 
-    const skin = '#e8b48f';
-    const shirt = '#2d8c6e';
-    const pants = '#33445c';
+    const pal = state.avatarPal || AVATARS[0];
+    const skin = pal.skin;
+    const shirt = pal.shirt;
+    const pants = pal.pants;
 
     // Legs (drawn first, behind torso)
     const hipY = 34;
@@ -1619,7 +1933,7 @@ function drawPlayer() {
     ctx.arc(0, 8, 7.5, 0, Math.PI * 2);
     ctx.fill();
     // Hair
-    ctx.fillStyle = '#4a3222';
+    ctx.fillStyle = pal.hair;
     ctx.beginPath();
     ctx.arc(0, 6.5, 7.5, Math.PI * 1.05, Math.PI * 1.95);
     ctx.fill();
@@ -1847,20 +2161,136 @@ function drawPickups(now) {
         const bobble = REDUCED_MOTION ? 0 : Math.sin(now / 260 + pk.ox) * 3;
         ctx.font = '20px "Segoe UI", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('☕', pk.m.x + pk.ox, pk.m.y - 8 + bobble);
+        ctx.fillText(pk.type === 'doc' ? '📄' : '☕', pk.m.x + pk.ox, pk.m.y - 8 + bobble);
         ctx.textAlign = 'left';
     }
-    // Caffeine HUD pill while the buff is live
-    if (state.buffTimer > 0) {
-        const secs = Math.ceil(state.buffTimer / 60);
-        const text = '☕ ' + secs + 's · double jump';
+
+    // The deployed report decoy
+    if (state.decoy) {
+        const d = state.decoy;
+        ctx.font = '20px "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('📄', d.x + d.w / 2, d.y + d.h - 3);
+        ctx.textAlign = 'left';
+    }
+
+    // HUD pills (stacked top-left)
+    let hudY = 12;
+    function pill(text, color) {
         ctx.font = 'bold 12px "Segoe UI", sans-serif';
         const tw = ctx.measureText(text).width;
-        roundRect(ctx, 12, 12, tw + 20, 24, 12);
-        ctx.fillStyle = 'rgba(73, 130, 5, 0.92)';
+        roundRect(ctx, 12, hudY, tw + 20, 24, 12);
+        ctx.fillStyle = color;
         ctx.fill();
         ctx.fillStyle = '#fff';
-        ctx.fillText(text, 22, 29);
+        ctx.fillText(text, 22, hudY + 17);
+        hudY += 30;
+    }
+    if (state.buffTimer > 0) {
+        pill('☕ ' + Math.ceil(state.buffTimer / 60) + 's · double jump', 'rgba(73, 130, 5, 0.92)');
+    }
+    if (state.report && state.report.phase === 'writing') {
+        pill('📄 report due… ' + Math.ceil(state.report.t / 60) + 's', 'rgba(202, 80, 16, 0.92)');
+    } else if (state.report && state.report.phase === 'ready') {
+        pill('📄 report ready — X drops it', 'rgba(98, 100, 167, 0.95)');
+    }
+    if (state.decoy) {
+        pill('📄 boss distracted ' + Math.ceil(state.decoy.timer / 60) + 's', 'rgba(196, 49, 75, 0.92)');
+    }
+}
+
+// The project manager: platform-bound, bespectacled, armed with a clipboard
+function drawPM(now) {
+    const pm = state.pm;
+    if (!pm) return;
+    const ctx = state.ctx;
+    const swing = Math.sin(pm.animPhase) * 0.7;
+
+    ctx.save();
+    ctx.translate(pm.x + pm.w / 2, pm.y);
+    if (pm.facing < 0) ctx.scale(-1, 1);
+    ctx.lineCap = 'round';
+
+    const skin = '#eab38a';
+    const suit = '#5b5f97';
+
+    // Legs
+    ctx.strokeStyle = '#3a3a3a';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(-3, 32); ctx.lineTo(-3 + swing * 6, 44);
+    ctx.moveTo(3, 32);  ctx.lineTo(3 - swing * 6, 44);
+    ctx.stroke();
+
+    // Torso
+    ctx.fillStyle = suit;
+    roundRect(ctx, -8, 14, 16, 19, 4);
+    ctx.fill();
+    // Lanyard
+    ctx.strokeStyle = '#e3a008';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-4, 15); ctx.lineTo(0, 24); ctx.lineTo(4, 15);
+    ctx.stroke();
+
+    // Clipboard held out front
+    ctx.fillStyle = '#f5f5f5';
+    ctx.strokeStyle = '#8a6d3b';
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(6, 18, 9, 12);
+    ctx.strokeRect(6, 18, 9, 12);
+    ctx.strokeStyle = '#bbb';
+    ctx.beginPath();
+    ctx.moveTo(8, 22); ctx.lineTo(13, 22);
+    ctx.moveTo(8, 25); ctx.lineTo(13, 25);
+    ctx.stroke();
+    // Arm to the clipboard
+    ctx.strokeStyle = suit;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(5, 17); ctx.lineTo(9, 20);
+    ctx.stroke();
+
+    // Head
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.arc(0, 7, 7, 0, Math.PI * 2);
+    ctx.fill();
+    // Hair with a bun
+    ctx.fillStyle = '#3d2b1f';
+    ctx.beginPath();
+    ctx.arc(0, 5.5, 7, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(-6, 2, 3, 0, Math.PI * 2);
+    ctx.fill();
+    // Glasses
+    ctx.strokeStyle = '#242424';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(-2.5, 7, 2.2, 0, Math.PI * 2);
+    ctx.moveTo(2.2, 7);
+    ctx.arc(4.5, 7, 2.2, 0, Math.PI * 2);
+    ctx.moveTo(-0.3, 7); ctx.lineTo(2.3, 7);
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Speech bubble while they've got you cornered
+    if (pm.sayUntil > now) {
+        ctx.font = 'bold 11px "Segoe UI", sans-serif';
+        const tw = ctx.measureText(pm.sayText).width;
+        const bx = clamp(pm.x + pm.w / 2 - tw / 2 - 8, 6, state.W - tw - 22);
+        const by = pm.y - 24;
+        roundRect(ctx, bx, by, tw + 16, 19, 9);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.strokeStyle = '#d83b01';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.fillStyle = '#d83b01';
+        ctx.textAlign = 'left';
+        ctx.fillText(pm.sayText, bx + 8, by + 13);
     }
 }
 
@@ -1931,6 +2361,7 @@ function draw(now) {
     }
     drawPickups(now);
     drawParticles();
+    drawPM(now);
     drawPlayer();
     drawBoss(now);
     drawDangerVignette();
@@ -2116,8 +2547,15 @@ function gameLoop(now) {
 
     updateWorld(t, elapsedSec);
     updatePlayer(t);
-    if (state.running) updateBoss(t, now, elapsedSec);
+    if (state.running) {
+        updatePM(t);
+        updateDecoy(t);
+        updateBoss(t, now, elapsedSec);
+    }
     updateParticles(t);
+
+    document.getElementById('tc-report').classList.toggle('hidden',
+        !(state.report && state.report.phase === 'ready'));
 
     state.score = elapsedSec * CONFIG.POINTS_PER_SECOND;
     document.getElementById('score').textContent = Math.floor(state.score);

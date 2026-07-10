@@ -24,12 +24,18 @@ python3 -m http.server 8000
 | --- | --- |
 | `←` / `→` (or `A` / `D`) | Move left / right |
 | `Space` (or `↑` / `W`) | Jump |
+| `↓` (or `S`) | Drop through the platform you're standing on |
+| `X` (or `Shift`) | Drop a finished report as a boss decoy |
 | `P` / `Esc` | Pause (also auto-pauses when the window loses focus) |
 | `R` | Restart |
 | `M` | Mute / unmute |
 
-On touch devices, on-screen buttons appear automatically: ◀ ▶ to move
-(bottom-left) and ⬆ to jump (bottom-right).
+On touch devices, on-screen buttons appear automatically: ◀ ▶ ⬇ to move
+and drop (bottom-left), ⬆ to jump (bottom-right), and 📄 to deploy a
+report when one is ready.
+
+Pick your escapist on the start screen — six avatars, remembered between
+sessions.
 
 The start screen offers three difficulties — **Chill**, **Standard**, and
 **Crunch** — which scale the scroll speed, the boss's pace, and how fast
@@ -155,6 +161,13 @@ For a quick local test on the same Wi-Fi instead: run
 - Grab the occasional **☕ coffee** riding a message for six seconds of
   caffeine: faster running, springier jumps, and one mid-air double jump
   (refreshed on every landing while it lasts).
+- Collect a **📄 document** and ten seconds later your *report is
+  finished* — drop it with `X` and the boss can't resist: he beelines to
+  the report and reads it for five seconds while you escape ("TL;DR.").
+- Watch for the **project manager**: every now and then Paula Marsh
+  rides in on her own message. She can't leave it, but she paces along
+  it to follow you — touch her and you're trapped in a "quick sync" for
+  a moment, which is a long time with a boss overhead.
 - The game ends when:
   - the boss catches you,
   - you fall off the bottom of the chat, or
