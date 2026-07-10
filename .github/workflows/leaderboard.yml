@@ -34,7 +34,7 @@ jobs:
             // Strict format: "🏆 Score: AAA 1234 (standard)" — everything
             // else is rejected. Only the title is trusted; the body is ignored.
             const m = context.payload.issue.title
-                .match(/^🏆 Score: ([A-Z0-9]{1,3}) (\d{1,6}) \((chill|standard|crunch)\)$/);
+                .match(/^🏆 Score: ([A-Z0-9]{1,3}) (\d{1,6}) \((chill|standard|crunch|daily)\)$/);
             if (!m) { core.setOutput('ok', 'no'); return; }
             const score = parseInt(m[2], 10);
             if (score < 1 || score > 200000) { core.setOutput('ok', 'no'); return; }

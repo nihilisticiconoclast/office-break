@@ -26,7 +26,7 @@ const KEEP = 100;          // entries kept on disk
 const RETURN_TOP = 20;     // entries returned to clients
 const MAX_SCORE = 200000;  // sanity cap (~5.5 hours of survival)
 const RATE_LIMIT = 10;     // POSTs per minute per IP
-const DIFFS = ['chill', 'standard', 'crunch'];
+const DIFFS = ['chill', 'standard', 'crunch', 'daily'];
 
 const MIME = {
     '.html': 'text/html; charset=utf-8',

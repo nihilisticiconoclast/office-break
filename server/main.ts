@@ -20,7 +20,7 @@ const KEEP = 100;
 const RETURN_TOP = 20;
 const MAX_SCORE = 200000;
 const RATE_LIMIT = 10; // POSTs per minute per IP
-const DIFFS = ['chill', 'standard', 'crunch'];
+const DIFFS = ['chill', 'standard', 'crunch', 'daily'];
 
 const MIME: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',

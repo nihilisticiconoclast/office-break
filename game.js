@@ -296,7 +296,7 @@ const Leaderboard = {
         const entry = {
             initials: initials,
             score: score,
-            diff: state.diff,
+            diff: state.daily ? 'daily' : state.diff,
             date: new Date().toISOString().slice(0, 10)
         };
         if (this.mode === 'github') {
@@ -513,6 +513,7 @@ const state = {
     lastSeen: null,
     combo: 0,
     comboTimer: 0,
+    daily: false,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
 };
@@ -662,6 +663,15 @@ function boot() {
             document.querySelectorAll('.diff-btn').forEach(function (b) {
                 b.classList.toggle('active', b === btn);
             });
+        });
+    });
+
+    document.getElementById('daily-btn').addEventListener('click', function () {
+        state.daily = !state.daily;
+        document.getElementById('daily-btn').classList.toggle('active', state.daily);
+        document.querySelectorAll('.diff-btn[data-diff]').forEach(function (b) {
+            b.disabled = state.daily;
+            b.style.opacity = state.daily ? 0.45 : 1;
         });
     });
 
@@ -847,7 +857,16 @@ function startGame() {
     state.startTime = performance.now();
     state.lastFrame = performance.now();
     state.scrollSpeed = CONFIG.SCROLL_SPEED_START;
-    state.nextSpawnGap = randRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
+    if (state.daily) {
+        const d = new Date();
+        const seedStr = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+        layoutRand = mulberry32(seedStr);
+        state.diff = 'standard';   // dailies are a level playing field
+        showToast('📅 Daily challenge', 'Everyone gets this exact chat today');
+    } else {
+        layoutRand = Math.random;
+    }
+    state.nextSpawnGap = lrandRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
     state.score = 0;
     state.shake = 0;
     state.keys = {};
@@ -923,11 +942,11 @@ function startGame() {
     state.player.grounded = true;
     state.player.platform = first;
 
-    let y = first.y + first.h + randRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
+    let y = first.y + first.h + lrandRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
     while (y < state.H + 60) {
         const m = createMessage(y);
         state.messages.push(m);
-        y = m.y + m.h + randRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
+        y = m.y + m.h + lrandRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
     }
 
     if (state.rafId) cancelAnimationFrame(state.rafId);
@@ -984,6 +1003,23 @@ function randRange(min, max) {
     return min + Math.random() * (max - min);
 }
 
+/* Layout randomness runs through its own stream so Daily Challenge mode can
+   seed it from the date — everyone gets the identical chat that day. */
+function mulberry32(a) {
+    return function () {
+        a |= 0; a = a + 0x6D2B79F5 | 0;
+        let t = Math.imul(a ^ a >>> 15, 1 | a);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+}
+
+let layoutRand = Math.random;
+
+function lrand() { return layoutRand(); }
+function lpick(arr) { return arr[Math.floor(layoutRand() * arr.length)]; }
+function lrandRange(min, max) { return min + layoutRand() * (max - min); }
+
 function clamp(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v));
 }
@@ -998,29 +1034,29 @@ function pick(arr) {
 function pickMessageContent(own) {
     // During a reply-all storm everyone sends the same useless one-liners
     if (state.storm > 0) {
-        return { type: 'text', size: 'short', text: pick(STORM_REPLIES) };
+        return { type: 'text', size: 'short', text: lpick(STORM_REPLIES) };
     }
-    const roll = Math.random();
+    const roll = lrand();
     if (own) {
-        if (roll < 0.55) return { type: 'text', size: 'short', text: pick(SHORT_REPLIES) };
-        if (roll < 0.85) return { type: 'text', size: 'medium', text: pick(CORPORATE_PHRASES) };
-        return { type: 'gif', size: 'media', text: pick(GIF_CAPTIONS) };
+        if (roll < 0.55) return { type: 'text', size: 'short', text: lpick(SHORT_REPLIES) };
+        if (roll < 0.85) return { type: 'text', size: 'medium', text: lpick(CORPORATE_PHRASES) };
+        return { type: 'gif', size: 'media', text: lpick(GIF_CAPTIONS) };
     }
-    if (roll < 0.24) return { type: 'text', size: 'short', text: pick(SHORT_REPLIES) };
-    if (roll < 0.52) return { type: 'text', size: 'medium', text: pick(CORPORATE_PHRASES) };
+    if (roll < 0.24) return { type: 'text', size: 'short', text: lpick(SHORT_REPLIES) };
+    if (roll < 0.52) return { type: 'text', size: 'medium', text: lpick(CORPORATE_PHRASES) };
     if (roll < 0.68) {
-        let text = pick(CORPORATE_PHRASES) + '. ' + pick(CORPORATE_PHRASES);
-        if (Math.random() < 0.35) text += '. ' + pick(CORPORATE_PHRASES);
+        let text = lpick(CORPORATE_PHRASES) + '. ' + lpick(CORPORATE_PHRASES);
+        if (lrand() < 0.35) text += '. ' + lpick(CORPORATE_PHRASES);
         return { type: 'text', size: 'long', text: text };
     }
-    if (roll < 0.80) return { type: 'gif', size: 'media', text: pick(GIF_CAPTIONS) };
-    if (roll < 0.88) return { type: 'chart', size: 'media', text: pick(CHART_TITLES) };
+    if (roll < 0.80) return { type: 'gif', size: 'media', text: lpick(GIF_CAPTIONS) };
+    if (roll < 0.88) return { type: 'chart', size: 'media', text: lpick(CHART_TITLES) };
     if (roll < 0.94) {
         // Urgent messages rise through the chat faster than everything else
-        return { type: 'text', size: 'medium', text: pick(URGENT_MESSAGES), urgent: true };
+        return { type: 'text', size: 'medium', text: lpick(URGENT_MESSAGES), urgent: true };
     }
     // Meeting invites: wide card, the most generous platform in the game
-    return { type: 'invite', size: 'invite', text: pick(MEETING_TITLES), meetTime: pick(MEETING_TIMES) };
+    return { type: 'invite', size: 'invite', text: lpick(MEETING_TITLES), meetTime: lpick(MEETING_TIMES) };
 }
 
 function wrapText(text, maxWidth, font) {
@@ -1053,16 +1089,16 @@ function gameClock() {
 }
 
 function createMessage(y, forced) {
-    const own = forced ? false : Math.random() < 0.28;
+    const own = forced ? false : lrand() < 0.28;
     const sender = forced ? forced.sender
-        : (own ? YOU : COLLEAGUES[Math.floor(Math.random() * COLLEAGUES.length)]);
+        : (own ? YOU : COLLEAGUES[Math.floor(lrand() * COLLEAGUES.length)]);
     const content = forced ? forced.content : pickMessageContent(own);
 
     // Meeting invites are their own wide-card layout
     if (content.type === 'invite') {
-        const w = clamp(state.W * 0.6 + Math.random() * state.W * 0.12, 300, state.W * 0.8);
+        const w = clamp(state.W * 0.6 + lrand() * state.W * 0.12, 300, state.W * 0.8);
         const h = 88;
-        const x = clamp(64 + Math.random() * Math.max(1, state.W - w - 100), 24, Math.max(24, state.W - w - 24));
+        const x = clamp(64 + lrand() * Math.max(1, state.W - w - 100), 24, Math.max(24, state.W - w - 24));
         return {
             x: x, y: y, w: w, h: h, prevY: y,
             sender: sender,
@@ -1102,7 +1138,7 @@ function createMessage(y, forced) {
     const pad = 12;
     const hasMedia = content.type !== 'text';
     // GIFs/images are chunky squares; charts are wider cards
-    const mediaW = content.type === 'gif' ? 150 + Math.random() * 60
+    const mediaW = content.type === 'gif' ? 150 + lrand() * 60
         : content.type === 'chart' ? 190 : 0;
     const mediaH = content.type === 'gif' ? mediaW * 0.85
         : content.type === 'chart' ? 80 : 0;
@@ -1114,8 +1150,8 @@ function createMessage(y, forced) {
     // the jumpable levels; a little jitter keeps the columns from being
     // perfectly flush.
     const x = own
-        ? clamp(state.W - 24 - w - Math.random() * 70, 64, state.W - 24 - w)
-        : 64 + Math.random() * 90;
+        ? clamp(state.W - 24 - w - lrand() * 70, 64, state.W - 24 - w)
+        : 64 + lrand() * 90;
 
     return {
         x: x, y: y, w: w, h: h, prevY: y,
@@ -1129,15 +1165,15 @@ function createMessage(y, forced) {
         mediaW: mediaW,
         mediaH: mediaH,
         // Pre-rolled visuals so media doesn't flicker between frames
-        gifHue: Math.floor(Math.random() * 360),
-        bars: [0.4, 0.75, 0.55, 0.9, 0.65].map(function (b) { return b * (0.6 + Math.random() * 0.5); })
+        gifHue: Math.floor(lrand() * 360),
+        bars: [0.4, 0.75, 0.55, 0.9, 0.65].map(function (b) { return b * (0.6 + lrand() * 0.5); })
     };
 }
 
 function spawnFromBottom() {
     // Every now and then a project manager rides in on their own message.
     // They can't leave it — but they'll pace along it to corner you.
-    if (!state.pm && Math.random() < 0.08) {
+    if (!state.pm && lrand() < 0.08) {
         spawnPM(state.H + 12);
         return;
     }
@@ -1146,10 +1182,10 @@ function spawnFromBottom() {
     state.messages.push(m);
 
     // HR occasionally rides in too: slow, polite, and legally binding
-    if (!state.hr && Math.random() < 0.05) {
+    if (!state.hr && lrand() < 0.05) {
         const hm = createMessage(state.H + 12, {
             sender: HR_SENDER,
-            content: { type: 'text', size: 'medium', text: pick(HR_PHRASES) }
+            content: { type: 'text', size: 'medium', text: lpick(HR_PHRASES) }
         });
         state.messages.push(hm);
         state.hr = {
@@ -1166,12 +1202,12 @@ function spawnFromBottom() {
     }
 
     // The intern scurries in occasionally: friendly, quick, drops supplies
-    if (!state.intern && Math.random() < 0.06) {
+    if (!state.intern && lrand() < 0.06) {
         state.intern = {
             x: m.x + 10,
             y: m.y - 40,
             w: 24, h: 40,
-            vx: (Math.random() < 0.5 ? -1 : 1) * 2.6,
+            vx: (lrand() < 0.5 ? -1 : 1) * 2.6,
             vy: 0,
             grounded: true,
             platform: m,
@@ -1184,22 +1220,22 @@ function spawnFromBottom() {
 
     // Occasionally a pickup rides in on the message: coffee (speed + double
     // jump) or a document (becomes a boss-distracting report).
-    if (Math.random() < 0.09 && !state.pickups.some(function (p) { return p.type === 'coffee'; }) &&
+    if (lrand() < 0.09 && !state.pickups.some(function (p) { return p.type === 'coffee'; }) &&
         state.buffTimer <= 0) {
-        state.pickups.push({ type: 'coffee', m: m, ox: 20 + Math.random() * Math.max(10, m.w - 40) });
-    } else if (Math.random() < 0.09 && !state.pickups.some(function (p) { return p.type === 'doc'; }) &&
+        state.pickups.push({ type: 'coffee', m: m, ox: 20 + lrand() * Math.max(10, m.w - 40) });
+    } else if (lrand() < 0.09 && !state.pickups.some(function (p) { return p.type === 'doc'; }) &&
         !state.report && !state.decoy) {
-        state.pickups.push({ type: 'doc', m: m, ox: 20 + Math.random() * Math.max(10, m.w - 40) });
-    } else if (Math.random() < 0.045 && !state.pickups.some(function (p) { return p.type === 'dnd'; }) &&
+        state.pickups.push({ type: 'doc', m: m, ox: 20 + lrand() * Math.max(10, m.w - 40) });
+    } else if (lrand() < 0.045 && !state.pickups.some(function (p) { return p.type === 'dnd'; }) &&
         state.dndTimer <= 0) {
-        state.pickups.push({ type: 'dnd', m: m, ox: 20 + Math.random() * Math.max(10, m.w - 40) });
+        state.pickups.push({ type: 'dnd', m: m, ox: 20 + lrand() * Math.max(10, m.w - 40) });
     }
 }
 
 function spawnPM(y) {
     const m = createMessage(y, {
         sender: PM_SENDER,
-        content: { type: 'text', size: 'medium', text: pick(PM_PHRASES) }
+        content: { type: 'text', size: 'medium', text: lpick(PM_PHRASES) }
     });
     state.messages.push(m);
     state.pm = {
@@ -1285,7 +1321,7 @@ function updateWorld(t, elapsedSec) {
     } else if (elapsedSec * 1000 >= state.nextStormAt) {
         state.storm = CONFIG.STORM_FRAMES;
         state.nextStormAt = elapsedSec * 1000 +
-            randRange(CONFIG.STORM_GAP_MIN_MS, CONFIG.STORM_GAP_MAX_MS);
+            lrandRange(CONFIG.STORM_GAP_MIN_MS, CONFIG.STORM_GAP_MAX_MS);
         showToast('📣 Someone hit Reply All!', 'Brace for the flood…');
         Sound.tone(880, 0.12, 'square', 0.05, 660);
     }
@@ -1295,7 +1331,7 @@ function updateWorld(t, elapsedSec) {
     const airNeeded = state.nextSpawnGap * timeShrink * stormFactor /
         (1 + depth * CONFIG.SPAWN_DEPTH_BOOST);
     if (lowestBottom + airNeeded <= state.H + 12) {
-        state.nextSpawnGap = randRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
+        state.nextSpawnGap = lrandRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
         spawnFromBottom();
     }
 
@@ -2993,7 +3029,8 @@ function renderBoard(scores, you) {
         if (s.pending) li.classList.add('lb-pending');
         li.innerHTML =
             '<span class="lb-rank">' + (i + 1) + '.</span>' +
-            '<span class="lb-initials">' + String(s.initials).replace(/[<>&]/g, '') + '</span>' +
+            '<span class="lb-initials">' + String(s.initials).replace(/[<>&]/g, '') +
+            (s.diff === 'daily' ? ' 📅' : '') + '</span>' +
             '<span class="lb-score">' + Math.floor(s.score) + '</span>';
         list.appendChild(li);
     });
