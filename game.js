@@ -147,6 +147,20 @@ const PM_PHRASES = [
 
 const PM_STUN_LINES = ['Got a sec?', 'Quick sync!', 'One more thing…', 'While I have you—'];
 
+const HR_SENDER = { name: 'Hilda Rowe · HR', color: '#8f2d56' };
+
+const HR_PHRASES = [
+    'Reminder: compliance training is due Friday',
+    'Please review the updated PTO policy',
+    'The fridge is not a filing cabinet — HR',
+    'Mandatory fun day is, in fact, mandatory',
+    'Your wellness survey is now overdue',
+    'New policy: policies may change without notice'
+];
+
+const HR_LINES = ['Proper channels, please.', 'Is that report authorized?', 'Where is the cover sheet?'];
+const HR_LINES_IDLE = ['Compliance training?', 'Lovely weather. Sign this.'];
+
 const STORM_REPLIES = [
     'Thanks!', '+1', 'Please remove me from this list', 'Why am I on this thread?',
     'STOP REPLYING ALL', 'Noted, thanks', 'Same', 'Congrats!', 'Welcome aboard!',
@@ -494,6 +508,7 @@ const state = {
     bossPhase: 0,
     boss2: null,
     intern: null,
+    hr: null,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
 };
@@ -848,6 +863,7 @@ function startGame() {
     state.bossPhase = 0;
     state.boss2 = null;
     state.intern = null;
+    state.hr = null;
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
@@ -1120,6 +1136,26 @@ function spawnFromBottom() {
 
     const m = createMessage(state.H + 12);
     state.messages.push(m);
+
+    // HR occasionally rides in too: slow, polite, and legally binding
+    if (!state.hr && Math.random() < 0.05) {
+        const hm = createMessage(state.H + 12, {
+            sender: HR_SENDER,
+            content: { type: 'text', size: 'medium', text: pick(HR_PHRASES) }
+        });
+        state.messages.push(hm);
+        state.hr = {
+            m: hm,
+            x: hm.x + hm.w / 2 - 12,
+            w: 24, h: 44,
+            facing: 1,
+            animPhase: 0,
+            actCooldown: 0,
+            sayUntil: 0,
+            sayText: ''
+        };
+        return;
+    }
 
     // The intern scurries in occasionally: friendly, quick, drops supplies
     if (!state.intern && Math.random() < 0.06) {
@@ -1681,6 +1717,45 @@ function updateCall(t, elapsedSec) {
         if (state.call.t <= 0) endCall('missed');
     } else if (elapsedSec * 1000 >= state.nextCallAt) {
         startCall(elapsedSec * 1000);
+    }
+}
+
+// HR: platform-bound like the PM but slower. If she catches you holding
+// a report — in progress or finished — it's confiscated. Proper channels.
+function updateHR(t) {
+    const hr = state.hr;
+    if (!hr) return;
+    const p = state.player;
+
+    if (state.messages.indexOf(hr.m) === -1 || hr.m.y + hr.m.h < -20) {
+        state.hr = null;
+        return;
+    }
+
+    const target = clamp(p.x + p.w / 2 - hr.w / 2, hr.m.x + 3, hr.m.x + hr.m.w - hr.w - 3);
+    const step = clamp(target - hr.x, -1.1 * t, 1.1 * t);
+    hr.x += step;
+    if (Math.abs(step) > 0.15) {
+        hr.facing = step > 0 ? 1 : -1;
+        hr.animPhase += Math.abs(step) * 0.09;
+    }
+    hr.y = hr.m.y - hr.h;
+
+    if (hr.actCooldown > 0) hr.actCooldown -= t;
+    const touching = p.x + p.w > hr.x + 4 && p.x < hr.x + hr.w - 4 &&
+        p.y + p.h > hr.y + 6 && p.y < hr.y + hr.h - 4;
+    if (touching && hr.actCooldown <= 0) {
+        hr.actCooldown = 220;
+        if (state.report) {
+            state.report = null;
+            hr.sayText = pick(HR_LINES);
+            hr.sayUntil = performance.now() + 1600;
+            showToast('🗂️ Report confiscated', 'That needs to go through the proper channels');
+            Sound.tone(240, 0.25, 'sawtooth', 0.05, 140);
+        } else {
+            hr.sayText = pick(HR_LINES_IDLE);
+            hr.sayUntil = performance.now() + 1300;
+        }
     }
 }
 
@@ -2425,6 +2500,75 @@ function drawPickups(now) {
     }
 }
 
+function drawHR(now) {
+    const hr = state.hr;
+    if (!hr) return;
+    const ctx = state.ctx;
+    const swing = Math.sin(hr.animPhase) * 0.5;
+
+    ctx.save();
+    ctx.translate(hr.x + hr.w / 2, hr.y);
+    if (hr.facing < 0) ctx.scale(-1, 1);
+    ctx.lineCap = 'round';
+
+    // Legs
+    ctx.strokeStyle = '#4b4b4b';
+    ctx.lineWidth = 4.5;
+    ctx.beginPath();
+    ctx.moveTo(-3, 30); ctx.lineTo(-3 + swing * 4, 42);
+    ctx.moveTo(3, 30);  ctx.lineTo(3 - swing * 4, 42);
+    ctx.stroke();
+
+    // Blazer
+    ctx.fillStyle = '#8f2d56';
+    roundRect(ctx, -8, 13, 16, 18, 4);
+    ctx.fill();
+
+    // A thick folder, held to the chest
+    ctx.fillStyle = '#f0d9a8';
+    ctx.strokeStyle = '#b8935a';
+    ctx.lineWidth = 1.2;
+    ctx.fillRect(3, 17, 9, 11);
+    ctx.strokeRect(3, 17, 9, 11);
+
+    // Head + neat bob haircut
+    ctx.fillStyle = '#f0c9a0';
+    ctx.beginPath();
+    ctx.arc(0, 6.5, 6.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#6b4b2a';
+    ctx.beginPath();
+    ctx.arc(0, 5, 6.8, Math.PI * 0.95, Math.PI * 2.05);
+    ctx.fill();
+    ctx.fillRect(-6.8, 5, 2.4, 7);
+    ctx.fillRect(4.4, 5, 2.4, 7);
+    ctx.fillStyle = '#f0c9a0';
+    ctx.beginPath();
+    ctx.arc(0, 7.5, 5, 0, Math.PI * 2);
+    ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#242424';
+    ctx.beginPath();
+    ctx.arc(2.6, 7, 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    if (hr.sayUntil > now) {
+        ctx.font = 'bold 10px "Segoe UI", sans-serif';
+        const tw = ctx.measureText(hr.sayText).width;
+        const bx = clamp(hr.x + hr.w / 2 - tw / 2 - 7, 6, state.W - tw - 20);
+        roundRect(ctx, bx, hr.y - 20, tw + 14, 16, 8);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.strokeStyle = '#8f2d56';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#8f2d56';
+        ctx.fillText(hr.sayText, bx + 7, hr.y - 8);
+    }
+}
+
 function drawIntern(now) {
     const n = state.intern;
     if (!n) return;
@@ -2663,6 +2807,7 @@ function draw(now) {
     drawPickups(now);
     drawParticles();
     drawPM(now);
+    drawHR(now);
     drawIntern(now);
     drawPlayer();
     drawBossObj(state.boss, now);
@@ -2896,6 +3041,7 @@ function gameLoop(now) {
     updatePlayer(t);
     if (state.running) {
         updatePM(t);
+        updateHR(t);
         updateIntern(t);
         updateDecoy(t);
         updateCall(t, elapsedSec);
