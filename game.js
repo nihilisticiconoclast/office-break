@@ -3366,10 +3366,14 @@ function drawBossIndicator() {
     let text = null;
     let color = '#c4314b';
     let px = state.W / 2;
+    let spinner = false;
 
-    if (b.mode === 'stairs') {
-        text = 'The boss fell! He’s taking the stairs…';
+    const anyStairs = b.mode === 'stairs' ||
+        (state.boss2 && state.boss2.mode === 'stairs');
+    if (anyStairs) {
+        text = 'Reconnecting… the boss is having network issues. Please hold.';
         color = '#498205';
+        spinner = true;
     } else if (b.y + b.h < 0) {
         const dist = Math.round(-(b.y + b.h));
         text = '▲ Boss · ' + Math.max(1, Math.round(dist / 12)) + 'm behind';
@@ -3380,14 +3384,25 @@ function drawBossIndicator() {
 
     ctx.font = 'bold 12px "Segoe UI", sans-serif';
     const tw = ctx.measureText(text).width;
-    roundRect(ctx, px - tw / 2 - 12, 10, tw + 24, 24, 12);
+    const pad = spinner ? 34 : 12;
+    roundRect(ctx, px - tw / 2 - pad, 10, tw + pad + 12, 24, 12);
     ctx.fillStyle = color;
     ctx.globalAlpha = 0.92;
     ctx.fill();
     ctx.globalAlpha = 1;
+    if (spinner) {
+        // Teams-style spinner: a chasing arc
+        const cx = px - tw / 2 - 17;
+        const a0 = REDUCED_MOTION ? 0 : (performance.now() / 300) % (Math.PI * 2);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(cx, 22, 6, a0, a0 + Math.PI * 1.4);
+        ctx.stroke();
+    }
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
-    ctx.fillText(text, px, 26);
+    ctx.fillText(text, px + (spinner ? 6 : 0), 26);
     ctx.textAlign = 'left';
 }
 
