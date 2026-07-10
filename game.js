@@ -147,6 +147,14 @@ const PM_PHRASES = [
 
 const PM_STUN_LINES = ['Got a sec?', 'Quick sync!', 'One more thing…', 'While I have you—'];
 
+const PRESENCES = [
+    { name: 'Available',      color: '#6bb700', w: 10 },
+    { name: 'Away',           color: '#ffaa44', w: 3 },
+    { name: 'Be right back',  color: '#ffaa44', w: 2 },
+    { name: 'In a meeting',   color: '#c4314b', w: 2 },
+    { name: 'Appear offline', color: '#8a8a8a', w: 2 }
+];
+
 const HR_SENDER = { name: 'Hilda Rowe · HR', color: '#8f2d56' };
 
 const HR_PHRASES = [
@@ -635,6 +643,9 @@ const state = {
     meetingFlash: 0,
     printer: null,
     nextPrinterAt: 0,
+    presence: 0,
+    presenceTimer: 500,
+    presenceLabelUntil: 0,
     daily: false,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
@@ -1022,6 +1033,9 @@ function startGame() {
     state.meetingFlash = 0;
     state.printer = null;
     state.nextPrinterAt = CONFIG.PRINTER_FIRST_MS;
+    state.presence = 0;
+    state.presenceTimer = 500 + Math.random() * 400;
+    state.presenceLabelUntil = 0;
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
@@ -1871,6 +1885,11 @@ function updateBossObj(b, t, now, elapsedSec) {
         b.vx *= Math.pow(0.5, t);
         b.windup = 0;
     }
+    // 'Appear offline' worked: he's squinting at his roster
+    if (b.confused > 0) {
+        b.confused -= t;
+        b.windup = 0;
+    }
 
     // Mid-windup he plants his feet and raises his arms — the telegraph —
     // then smashes the platform he's standing on and drops through.
@@ -1895,8 +1914,8 @@ function updateBossObj(b, t, now, elapsedSec) {
                 b.smashPose = 16;
             }
         }
-    } else if (reading || b.printerStun > 0) {
-        // Engrossed in the report — or buried under a printer
+    } else if (reading || b.printerStun > 0 || b.confused > 0) {
+        // Engrossed in the report — buried under a printer — or confused
         b.vx *= Math.pow(0.6, t);
     } else {
         const dir = dx > 6 ? 1 : dx < -6 ? -1 : 0;
@@ -1925,7 +1944,8 @@ function updateBossObj(b, t, now, elapsedSec) {
         }
     }
 
-    if (b.grounded && b.windup <= 0 && b.smashCooldown <= 0 && !reading && !(b.printerStun > 0)) {
+    if (b.grounded && b.windup <= 0 && b.smashCooldown <= 0 && !reading &&
+        !(b.printerStun > 0) && !(b.confused > 0)) {
         if (tgt.y > b.y + b.h + 20 && b.platform !== tgt.platform) {
             // Target is below: smash through the floor to follow
             b.windup = CONFIG.BOSS_WINDUP - state.bossPhase * 3;
@@ -1959,6 +1979,38 @@ function updateBossObj(b, t, now, elapsedSec) {
     }
 
     checkBossCatch(b);
+}
+
+/* --------------------------------------------------------------------------
+   Status roulette — Teams changes your presence whenever it feels like it.
+   'Appear offline' briefly convinces the bosses you've vanished.
+   -------------------------------------------------------------------------- */
+
+function updatePresence(t) {
+    state.presenceTimer -= t;
+    if (state.presenceTimer > 0) return;
+    state.presenceTimer = 500 + Math.random() * 500;   // every ~8-16s
+
+    const total = PRESENCES.reduce(function (s, p) { return s + p.w; }, 0);
+    let roll = Math.random() * total;
+    let next = 0;
+    for (let i = 0; i < PRESENCES.length; i++) {
+        roll -= PRESENCES[i].w;
+        if (roll <= 0) { next = i; break; }
+    }
+    if (next === state.presence) return;
+    state.presence = next;
+    state.presenceLabelUntil = performance.now() + 1500;
+
+    if (PRESENCES[next].name === 'Appear offline') {
+        [state.boss, state.boss2].forEach(function (b) {
+            if (!b || !b.chasing) return;
+            b.confused = 80;
+            b.quote = 'Hello?? Are you there';
+            b.quoteUntil = performance.now() + 1600;
+        });
+        Sound.tone(500, 0.1, 'sine', 0.04, 350);
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -2677,7 +2729,7 @@ function drawPlayer() {
 
     ctx.restore();
 
-    // Presence dot: red DND while invisible
+    // Presence dot: red DND while invisible, else whatever Teams decided
     if (state.dndTimer > 0) {
         ctx.fillStyle = '#c4314b';
         ctx.beginPath();
@@ -2689,6 +2741,18 @@ function drawPlayer() {
         ctx.moveTo(p.x + p.w - 4.2, p.y + 2);
         ctx.lineTo(p.x + p.w + 0.2, p.y + 2);
         ctx.stroke();
+    } else {
+        ctx.fillStyle = PRESENCES[state.presence].color;
+        ctx.beginPath();
+        ctx.arc(p.x + p.w - 2, p.y + 2, 3.4, 0, Math.PI * 2);
+        ctx.fill();
+        if (state.presenceLabelUntil > performance.now()) {
+            ctx.font = '10px "Segoe UI", sans-serif';
+            ctx.fillStyle = '#616161';
+            ctx.textAlign = 'center';
+            ctx.fillText(PRESENCES[state.presence].name, p.x + p.w / 2, p.y - 6);
+            ctx.textAlign = 'left';
+        }
     }
 }
 
@@ -3543,6 +3607,7 @@ function gameLoop(now) {
         updateIntern(t);
         updateDecoy(t);
         updateCall(t, elapsedSec);
+        updatePresence(t);
         updatePrinter(t, elapsedSec);
         updateBossObj(state.boss, t, now, elapsedSec);
         if (state.running && state.boss2) updateBossObj(state.boss2, t, now, elapsedSec);
