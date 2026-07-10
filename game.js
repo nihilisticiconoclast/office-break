@@ -1371,6 +1371,7 @@ function spawnFromBottom() {
             grounded: true,
             platform: m,
             dropCooldown: 200,
+            hopCooldown: 150,
             animPhase: 0,
             sayUntil: 0,
             sayCooldown: 0
@@ -2010,6 +2011,30 @@ function updateIntern(t) {
     if (n.x < 0) { n.x = 0; n.vx = Math.abs(n.vx); }
     if (n.x > state.W - n.w) { n.x = state.W - n.w; n.vx = -Math.abs(n.vx); }
 
+    if (n.hopCooldown > 0) n.hopCooldown -= t;
+
+    // At a platform edge: turn around, unless a platform waits below within
+    // a comfortable drop — then (occasionally) hop down on purpose.
+    if (n.grounded && n.platform && !n.dropping) {
+        const m = n.platform;
+        const pastRight = n.vx > 0 && n.x + n.w > m.x + m.w - 2;
+        const pastLeft = n.vx < 0 && n.x < m.x + 2;
+        if (pastRight || pastLeft) {
+            const dropSafe = state.messages.some(function (mm) {
+                return mm !== m && mm.y > m.y && mm.y - m.y < 220 &&
+                    mm.y < state.H - 30 &&
+                    n.x + n.w > mm.x && n.x < mm.x + mm.w;
+            });
+            if (dropSafe && n.hopCooldown <= 0) {
+                n.hopCooldown = 260;
+                n.dropping = true;   // committed: no snap-back until we land
+            } else {
+                n.vx = -n.vx;
+                n.x = pastRight ? m.x + m.w - n.w - 2 : m.x + 2;
+            }
+        }
+    }
+
     const prevBottom = n.y + n.h;
     if (n.grounded) {
         const m = n.platform;
@@ -2035,6 +2060,7 @@ function updateIntern(t) {
                     n.vy = 0;
                     n.grounded = true;
                     n.platform = m;
+                    n.dropping = false;
                     break;
                 }
             }
