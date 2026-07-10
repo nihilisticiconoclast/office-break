@@ -396,6 +396,72 @@ const Sound = {
         });
     },
 
+    /* ---- lo-fi background loop: scheduled one bar ahead ---- */
+
+    musicTimer: null,
+    musicNextBar: 0,
+    musicBar: 0,
+
+    note: function (freq, tStart, dur, type, vol) {
+        if (this.muted || !this.ctx) return;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = type;
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.0001, tStart);
+        g.gain.exponentialRampToValueAtTime(vol, tStart + 0.06);
+        g.gain.exponentialRampToValueAtTime(0.0001, tStart + dur);
+        o.connect(g);
+        g.connect(this.ctx.destination);
+        o.start(tStart);
+        o.stop(tStart + dur + 0.05);
+    },
+
+    playBar: function (t0, i) {
+        const roots = [130.81, 110.00, 87.31, 98.00];            // C3 A2 F2 G2
+        const chords = [
+            [261.63, 329.63, 392.00, 493.88],                    // Cmaj7
+            [220.00, 261.63, 329.63, 415.30],                    // Am7-ish
+            [174.61, 220.00, 261.63, 349.23],                    // Fmaj7-ish
+            [196.00, 246.94, 293.66, 392.00]                     // G7
+        ];
+        this.note(roots[i], t0, 1.5, 'sine', 0.035);
+        this.note(roots[i], t0 + 1.6, 1.4, 'sine', 0.028);
+        const notes = chords[i];
+        for (let n = 0; n < notes.length; n++) {
+            this.note(notes[n], t0 + 0.05 + n * 0.03, 2.9, 'triangle', 0.011);
+        }
+    },
+
+    scheduleMusic: function () {
+        if (!this.ctx || this.muted || !state.running || state.paused) return;
+        const BAR = 3.2;
+        while (this.musicNextBar < this.ctx.currentTime + 0.9) {
+            if (this.musicNextBar < this.ctx.currentTime) {
+                this.musicNextBar = this.ctx.currentTime + 0.05;
+            }
+            this.playBar(this.musicNextBar, this.musicBar % 4);
+            this.musicNextBar += BAR;
+            this.musicBar++;
+        }
+    },
+
+    startMusic: function () {
+        this.ensure();
+        if (this.musicTimer || !this.ctx) return;
+        this.musicNextBar = this.ctx.currentTime + 0.15;
+        this.musicBar = 0;
+        const s = this;
+        this.musicTimer = setInterval(function () { s.scheduleMusic(); }, 400);
+    },
+
+    stopMusic: function () {
+        if (this.musicTimer) {
+            clearInterval(this.musicTimer);
+            this.musicTimer = null;
+        }
+    },
+
     toggleMute: function () {
         this.muted = !this.muted;
         localStorage.setItem('office-break-muted', this.muted ? '1' : '0');
@@ -845,6 +911,7 @@ function startGame() {
     document.getElementById('pause-overlay').classList.add('hidden');
 
     Sound.ensure();
+    Sound.startMusic();
     state.enteringInitials = false;
     state.lbToken++;
     state.running = true;
@@ -1011,6 +1078,7 @@ function endGame(reason) {
     state.gameOver = true;
     state.gameOverAt = performance.now();
     haptic(120);
+    Sound.stopMusic();
     state.call = null;
     document.getElementById('call-card').classList.add('hidden');
     const final = Math.floor(state.score);
