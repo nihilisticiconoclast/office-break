@@ -332,6 +332,53 @@ const Leaderboard = {
     }
 };
 
+const ACHIEVEMENTS = [
+    { id: 'first-run',   name: 'Out of Office',            desc: 'Finish your first escape attempt' },
+    { id: 'survive-60',  name: 'Long Lunch',               desc: 'Survive for a full minute' },
+    { id: 'score-1000',  name: 'Overachiever',             desc: 'Score 1,000 points in one run' },
+    { id: 'cascade',     name: 'Serial Scroller',          desc: 'Reach a ×5 descent combo' },
+    { id: 'demolition',  name: 'Demolition Survivor',      desc: 'Outlive 10 smashed messages in one run' },
+    { id: 'delegation',  name: 'Delegation',               desc: 'Distract the boss with a report' },
+    { id: 'left-on-read', name: 'Left on Read',            desc: 'Vanish behind Do Not Disturb' },
+    { id: 'synergized',  name: 'Synergized',               desc: 'Get cornered by the project manager' },
+    { id: 'not-now',     name: 'Not Now',                  desc: 'Decline an incoming call' },
+    { id: 'stairs',      name: 'Pushed Down the Stairs',   desc: 'Send a boss off the bottom of the chat' },
+    { id: 'org-chart',   name: 'Org Chart Explorer',       desc: 'Meet the skip-level manager' },
+    { id: 'routine',     name: 'Routine',                  desc: 'Finish a daily challenge' }
+];
+
+let achSet = new Set();
+
+function loadAchievements() {
+    try {
+        achSet = new Set(JSON.parse(localStorage.getItem('office-break-ach') || '[]'));
+    } catch (err) {
+        achSet = new Set();
+    }
+    updateAchCount();
+}
+
+function award(id) {
+    if (achSet.has(id)) return;
+    achSet.add(id);
+    localStorage.setItem('office-break-ach', JSON.stringify(Array.from(achSet)));
+    const a = ACHIEVEMENTS.find(function (x) { return x.id === id; });
+    if (a) {
+        showToast('🏅 ' + a.name, a.desc);
+        Sound.best();
+    }
+    updateAchCount();
+}
+
+function updateAchCount() {
+    const el = document.getElementById('ach-count');
+    if (!el) return;
+    el.textContent = '🏅 ' + achSet.size + '/' + ACHIEVEMENTS.length + ' achievements';
+    el.title = ACHIEVEMENTS.map(function (a) {
+        return (achSet.has(a.id) ? '✓ ' : '✗ ') + a.name + ' — ' + a.desc;
+    }).join('\n');
+}
+
 /* --------------------------------------------------------------------------
    Sound — tiny WebAudio synth, no assets
    -------------------------------------------------------------------------- */
@@ -716,6 +763,7 @@ function boot() {
     document.getElementById('restart-btn').addEventListener('click', startGame);
     document.getElementById('resume-btn').addEventListener('click', togglePause);
 
+    loadAchievements();
     state.avatarIdx = Math.abs(parseInt(localStorage.getItem('office-break-avatar') || '0', 10)) % AVATARS.length;
     state.avatarPal = AVATARS[state.avatarIdx];
     buildAvatarPicker();
@@ -758,7 +806,10 @@ function boot() {
 
     document.getElementById('initials-ok').addEventListener('click', confirmInitials);
     document.getElementById('call-decline').addEventListener('click', function () {
-        if (state.call) endCall('declined');
+        if (state.call) {
+            endCall('declined');
+            award('not-now');
+        }
     });
     document.getElementById('call-accept').addEventListener('click', function () {
         if (state.call) endCall('answered');
@@ -834,6 +885,7 @@ function setupInput() {
         }
         if (e.code === 'KeyC' && !e.repeat && state.call) {
             endCall('declined');
+            award('not-now');
             return;
         }
         if (state.paused) return;
@@ -1095,6 +1147,9 @@ function endGame(reason) {
     document.getElementById('go-stats').textContent =
         state.stats.hops + ' messages hopped · ' + state.stats.smashed + ' smashed by the boss';
     document.getElementById('go-review').textContent = performanceReview(final, reason);
+    award('first-run');
+    if ((performance.now() - state.startTime) / 1000 >= 60) award('survive-60');
+    if (state.daily) award('routine');
     document.getElementById('game-over').classList.remove('hidden');
     showLeaderboardFlow(final);
 }
@@ -1622,6 +1677,7 @@ function updatePlayer(t) {
                 state.lastSeen = { x: p.x, y: p.y, w: p.w, h: p.h, platform: p.platform };
                 Sound.tone(360, 0.2, 'sine', 0.06, 240);
                 showToast('🔕 Do Not Disturb', 'Management can’t see you for 5 seconds');
+                award('left-on-read');
             } else {
                 state.buffTimer = 360;   // ~6 seconds
                 p.airJump = 1;
@@ -1667,6 +1723,7 @@ function updatePlayer(t) {
             };
             Sound.tone(300, 0.12, 'square', 0.05, 180);
             showToast('📄 Report deployed', 'The boss can’t resist unread documents');
+            award('delegation');
         }
     }
 
@@ -1714,6 +1771,7 @@ function updateBossObj(b, t, now, elapsedSec) {
         return;
     }
     if (b.y > state.H + 50) {
+        award('stairs');
         b.mode = 'stairs';
         b.stairsTimer = CONFIG.BOSS_STAIRS_FRAMES;
         b.grounded = false;
@@ -2044,6 +2102,7 @@ function updatePM(t) {
         pm.stunCooldown = 180;
         pm.sayText = pick(PM_STUN_LINES);
         pm.sayUntil = performance.now() + 1400;
+        award('synergized');
         Sound.tone(440, 0.18, 'sine', 0.06, 380);
     }
 }
@@ -3280,6 +3339,12 @@ function gameLoop(now) {
         state.bossPhase = phase;
         onBossPhase(phase, now);
     }
+
+    // Achievement checks that depend on live run state
+    if (state.score >= 1000) award('score-1000');
+    if (state.combo >= 5) award('cascade');
+    if (state.stats.smashed >= 10) award('demolition');
+    if (state.bossPhase >= 3) award('org-chart');
 
     // Every 500 points you get dragged into a busier channel
     const stage = clamp(Math.floor(state.score / 500), 0, CHANNELS.length - 1);
