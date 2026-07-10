@@ -536,6 +536,12 @@ const CONFIG = {
     SPAWN_AIR_MIN: 30,           // clear air between one message's bottom and the next one's top
     SPAWN_AIR_MAX: 78,
 
+    PRINTER_FIRST_MS: 45000,     // first printer drop
+    PRINTER_GAP_MIN_MS: 55000,   // then every 55-95s
+    PRINTER_GAP_MAX_MS: 95000,
+    PRINTER_WARN_FRAMES: 60,     // ⚠ marker before it falls
+    PRINTER_MAX_SMASHES: 2,      // messages destroyed before it shatters
+
     CALL_FIRST_MS: 50000,        // first incoming call
     CALL_GAP_MIN_MS: 60000,      // then every 60-100s
     CALL_GAP_MAX_MS: 100000,
@@ -627,6 +633,8 @@ const state = {
     combo: 0,
     comboTimer: 0,
     meetingFlash: 0,
+    printer: null,
+    nextPrinterAt: 0,
     daily: false,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
@@ -1012,6 +1020,8 @@ function startGame() {
     state.combo = 0;
     state.comboTimer = 0;
     state.meetingFlash = 0;
+    state.printer = null;
+    state.nextPrinterAt = CONFIG.PRINTER_FIRST_MS;
     document.getElementById('call-card').classList.add('hidden');
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
@@ -1855,6 +1865,13 @@ function updateBossObj(b, t, now, elapsedSec) {
     const prevBottom = b.y + b.h;
     const dx = (tgt.x + tgt.w / 2) - (b.x + b.w / 2);
 
+    // Paper jam: a printer landed on him — he's busy
+    if (b.printerStun > 0) {
+        b.printerStun -= t;
+        b.vx *= Math.pow(0.5, t);
+        b.windup = 0;
+    }
+
     // Mid-windup he plants his feet and raises his arms — the telegraph —
     // then smashes the platform he's standing on and drops through.
     if (b.windup > 0) {
@@ -1878,8 +1895,8 @@ function updateBossObj(b, t, now, elapsedSec) {
                 b.smashPose = 16;
             }
         }
-    } else if (reading) {
-        // Engrossed in the report — stands still, reads
+    } else if (reading || b.printerStun > 0) {
+        // Engrossed in the report — or buried under a printer
         b.vx *= Math.pow(0.6, t);
     } else {
         const dir = dx > 6 ? 1 : dx < -6 ? -1 : 0;
@@ -1908,7 +1925,7 @@ function updateBossObj(b, t, now, elapsedSec) {
         }
     }
 
-    if (b.grounded && b.windup <= 0 && b.smashCooldown <= 0 && !reading) {
+    if (b.grounded && b.windup <= 0 && b.smashCooldown <= 0 && !reading && !(b.printerStun > 0)) {
         if (tgt.y > b.y + b.h + 20 && b.platform !== tgt.platform) {
             // Target is below: smash through the floor to follow
             b.windup = CONFIG.BOSS_WINDUP - state.bossPhase * 3;
@@ -1942,6 +1959,122 @@ function updateBossObj(b, t, now, elapsedSec) {
     }
 
     checkBossCatch(b);
+}
+
+/* --------------------------------------------------------------------------
+   The printer — periodically falls through the chat, smashing what it hits.
+   It has chosen violence. Lands on a boss and he's out with a paper jam.
+   -------------------------------------------------------------------------- */
+
+function updatePrinter(t, elapsedSec) {
+    if (!state.printer) {
+        if (elapsedSec * 1000 >= state.nextPrinterAt) {
+            state.printer = {
+                x: 60 + lrand() * (state.W - 120),
+                y: -40,
+                w: 36, h: 26,
+                vy: 0,
+                warn: CONFIG.PRINTER_WARN_FRAMES,
+                smashed: 0
+            };
+            state.nextPrinterAt = elapsedSec * 1000 +
+                lrandRange(CONFIG.PRINTER_GAP_MIN_MS, CONFIG.PRINTER_GAP_MAX_MS);
+        }
+        return;
+    }
+
+    const pr = state.printer;
+    if (pr.warn > 0) {
+        pr.warn -= t;
+        return;
+    }
+
+    const prevBottom = pr.y + pr.h;
+    pr.vy += CONFIG.GRAVITY * 1.1 * t;
+    pr.y += pr.vy * t;
+
+    // Crash through messages, smashing them
+    if (pr.vy > 0) {
+        for (let i = 0; i < state.messages.length; i++) {
+            const m = state.messages[i];
+            if (pr.x + pr.w > m.x && pr.x < m.x + m.w &&
+                prevBottom <= m.prevY + 2 && pr.y + pr.h >= m.y - 2) {
+                smashMessage(i);
+                pr.smashed++;
+                pr.vy = Math.max(2, pr.vy * 0.5);
+                haptic(20);
+                if (pr.smashed > CONFIG.PRINTER_MAX_SMASHES) {
+                    // The printer has given all it has
+                    for (let k = 0; k < 10; k++) {
+                        state.particles.push({
+                            x: pr.x + Math.random() * pr.w,
+                            y: pr.y + Math.random() * pr.h,
+                            vx: (Math.random() - 0.5) * 6,
+                            vy: -Math.random() * 4,
+                            size: 3 + Math.random() * 5,
+                            rot: Math.random() * Math.PI,
+                            vr: (Math.random() - 0.5) * 0.4,
+                            life: 1,
+                            color: k % 2 ? '#9a9a9a' : '#ffffff'
+                        });
+                    }
+                    state.printer = null;
+                    return;
+                }
+                break;
+            }
+        }
+    }
+
+    // Land on a boss: paper jam
+    [state.boss, state.boss2].forEach(function (b) {
+        if (!b || !b.chasing || b.printerStun > 0) return;
+        if (pr.x + pr.w > b.x && pr.x < b.x + b.w &&
+            pr.y + pr.h > b.y && pr.y < b.y + b.h) {
+            b.printerStun = 150;
+            b.quote = 'PC LOAD LETTER';
+            b.quoteUntil = performance.now() + 2200;
+            pr.vy = -5;
+            Sound.smash();
+            haptic(40);
+        }
+    });
+
+    if (pr.y > state.H + 60) state.printer = null;
+}
+
+function drawPrinter() {
+    const pr = state.printer;
+    if (!pr) return;
+    const ctx = state.ctx;
+
+    if (pr.warn > 0) {
+        const blink = Math.floor(pr.warn / 8) % 2 === 0;
+        if (blink || REDUCED_MOTION) {
+            ctx.font = 'bold 16px "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#c4314b';
+            ctx.fillText('⚠', pr.x + pr.w / 2, 24);
+            ctx.textAlign = 'left';
+        }
+        return;
+    }
+
+    // Body
+    ctx.fillStyle = '#8d8d93';
+    roundRect(ctx, pr.x, pr.y + 6, pr.w, pr.h - 6, 4);
+    ctx.fill();
+    ctx.fillStyle = '#6f6f75';
+    roundRect(ctx, pr.x + 4, pr.y, pr.w - 8, 10, 3);
+    ctx.fill();
+    // Paper flying out
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(pr.x + 8, pr.y - 4, pr.w - 16, 5);
+    // Blinking jam light
+    ctx.fillStyle = Math.floor(performance.now() / 150) % 2 ? '#ff5f4a' : '#7a2a1e';
+    ctx.beginPath();
+    ctx.arc(pr.x + pr.w - 7, pr.y + 13, 2.2, 0, Math.PI * 2);
+    ctx.fill();
 }
 
 /* --------------------------------------------------------------------------
@@ -3171,6 +3304,7 @@ function draw(now) {
     drawPM(now);
     drawHR(now);
     drawIntern(now);
+    drawPrinter();
     drawPlayer();
     drawBossObj(state.boss, now);
     if (state.boss2) drawBossObj(state.boss2, now);
@@ -3409,6 +3543,7 @@ function gameLoop(now) {
         updateIntern(t);
         updateDecoy(t);
         updateCall(t, elapsedSec);
+        updatePrinter(t, elapsedSec);
         updateBossObj(state.boss, t, now, elapsedSec);
         if (state.running && state.boss2) updateBossObj(state.boss2, t, now, elapsedSec);
     }
