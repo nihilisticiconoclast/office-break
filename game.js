@@ -953,6 +953,41 @@ function startGame() {
     state.rafId = requestAnimationFrame(gameLoop);
 }
 
+// Generate a performance review from how the run actually went
+function performanceReview(finalScore, reason) {
+    const s = state.stats;
+    const strengths = [];
+    const growth = [];
+
+    if (s.hops >= 30) strengths.push('relentless descent');
+    else if (s.hops >= 12) strengths.push('adequate downward mobility');
+    else growth.push('message-to-message agility');
+
+    if (s.smashed >= 8) strengths.push('withstanding managerial demolition');
+    else if (s.smashed <= 2) strengths.push('conflict avoidance');
+
+    if (state.bossPhase >= 2) strengths.push('surviving escalations');
+    if (finalScore >= 1000) strengths.push('sheer stamina');
+    if (finalScore < 200) growth.push('remaining employed');
+
+    if (reason.indexOf('fell') !== -1) growth.push('looking before leaping');
+    else if (reason.indexOf('archive') !== -1) growth.push('time management');
+    else if (reason.indexOf('caught') !== -1) growth.push('exit interviews');
+
+    if (!strengths.length) strengths.push('enthusiasm');
+    if (!growth.length) growth.push('nothing — see you at the top');
+
+    const rating = finalScore >= 1500 ? '5/5 — promoted (more meetings)'
+        : finalScore >= 800 ? '4/5 — exceeds expectations'
+        : finalScore >= 400 ? '3/5 — meets some expectations'
+        : finalScore >= 150 ? '2/5 — growth mindset encouraged'
+        : '1/5 — see me.';
+
+    return 'Strengths: ' + strengths.slice(0, 2).join(', ') +
+        '. Growth areas: ' + growth.slice(0, 2).join(', ') +
+        '. Rating: ' + rating;
+}
+
 function togglePause() {
     if (!state.running) return;
     if (!state.paused) {
@@ -991,6 +1026,7 @@ function endGame(reason) {
     document.getElementById('final-score').textContent = final;
     document.getElementById('go-stats').textContent =
         state.stats.hops + ' messages hopped · ' + state.stats.smashed + ' smashed by the boss';
+    document.getElementById('go-review').textContent = performanceReview(final, reason);
     document.getElementById('game-over').classList.remove('hidden');
     showLeaderboardFlow(final);
 }

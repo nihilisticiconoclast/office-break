@@ -739,6 +739,18 @@ kbd {
 .dialog .final strong { color: var(--teams-purple); }
 .dialog .hint { font-size: 12px; color: var(--text-secondary); margin: 12px 0 0; }
 
+.review {
+    font-size: 12px;
+    font-style: italic;
+    color: var(--text-secondary);
+    background: #f6f6fb;
+    border-left: 3px solid var(--teams-purple);
+    border-radius: 0 4px 4px 0;
+    padding: 8px 12px;
+    margin: 4px 0 10px;
+    text-align: left;
+}
+
 /* --------------------------------------------------------------------------
    Responsive
    -------------------------------------------------------------------------- */
