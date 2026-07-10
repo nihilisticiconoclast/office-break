@@ -145,6 +145,12 @@ const PM_PHRASES = [
 
 const PM_STUN_LINES = ['Got a sec?', 'Quick sync!', 'One more thing…', 'While I have you—'];
 
+const STORM_REPLIES = [
+    'Thanks!', '+1', 'Please remove me from this list', 'Why am I on this thread?',
+    'STOP REPLYING ALL', 'Noted, thanks', 'Same', 'Congrats!', 'Welcome aboard!',
+    '🎉', 'Seen', 'Adding my manager', 'Unsubscribe', 'Thanks all!'
+];
+
 const MILESTONE_FLAVOR = [
     'Inbox zero energy',
     'Promotion pending…',
@@ -401,6 +407,12 @@ const CONFIG = {
     SPAWN_AIR_MIN: 30,           // clear air between one message's bottom and the next one's top
     SPAWN_AIR_MAX: 78,
 
+    STORM_FIRST_MS: 35000,       // first reply-all storm
+    STORM_GAP_MIN_MS: 45000,     // then every 45-75s
+    STORM_GAP_MAX_MS: 75000,
+    STORM_FRAMES: 360,           // ~6 seconds of chaos
+    STORM_AIR_FACTOR: 0.3,       // spawn gaps shrink to 30% during a storm
+
     SPAWN_DEPTH_BOOST: 0.9,      // up to +90% spawn rate when player is near the bottom
     SPAWN_TIME_SHRINK: 0.0015,   // spawn gaps shrink by this fraction per second
     SPAWN_SHRINK_FLOOR: 0.7,     // ...down to 70% of the base gap
@@ -467,6 +479,8 @@ const state = {
     pickups: [],
     buffTimer: 0,
     reportDropQueued: false,
+    storm: 0,
+    nextStormAt: 0,
     avatarIdx: 0,
     avatarPal: AVATARS[0]
 };
@@ -804,6 +818,8 @@ function startGame() {
     state.decoy = null;
     state.report = null;
     state.reportDropQueued = false;
+    state.storm = 0;
+    state.nextStormAt = CONFIG.STORM_FIRST_MS;
     state.avatarPal = AVATARS[state.avatarIdx] || AVATARS[0];
 
     state.player = {
@@ -922,6 +938,10 @@ function pick(arr) {
 // long rambles are wide floors, GIFs are chunky square blocks. Your own
 // replies skew short (you're busy escaping).
 function pickMessageContent(own) {
+    // During a reply-all storm everyone sends the same useless one-liners
+    if (state.storm > 0) {
+        return { type: 'text', size: 'short', text: pick(STORM_REPLIES) };
+    }
     const roll = Math.random();
     if (own) {
         if (roll < 0.55) return { type: 'text', size: 'short', text: pick(SHORT_REPLIES) };
@@ -1160,7 +1180,21 @@ function updateWorld(t, elapsedSec) {
     for (let i = 0; i < state.messages.length; i++) {
         lowestBottom = Math.max(lowestBottom, state.messages[i].y + state.messages[i].h);
     }
-    const airNeeded = state.nextSpawnGap * timeShrink / (1 + depth * CONFIG.SPAWN_DEPTH_BOOST);
+    // Reply-all storm: periodic bursts where the chat floods with tiny replies
+    if (state.storm > 0) {
+        state.storm -= t;
+    } else if (elapsedSec * 1000 >= state.nextStormAt) {
+        state.storm = CONFIG.STORM_FRAMES;
+        state.nextStormAt = elapsedSec * 1000 +
+            randRange(CONFIG.STORM_GAP_MIN_MS, CONFIG.STORM_GAP_MAX_MS);
+        showToast('📣 Someone hit Reply All!', 'Brace for the flood…');
+        Sound.tone(880, 0.12, 'square', 0.05, 660);
+    }
+    // ...and the whole chat scrolls faster while it rages
+    if (state.storm > 0) state.scrollSpeed *= 1.5;
+    const stormFactor = state.storm > 0 ? CONFIG.STORM_AIR_FACTOR : 1;
+    const airNeeded = state.nextSpawnGap * timeShrink * stormFactor /
+        (1 + depth * CONFIG.SPAWN_DEPTH_BOOST);
     if (lowestBottom + airNeeded <= state.H + 12) {
         state.nextSpawnGap = randRange(CONFIG.SPAWN_AIR_MIN, CONFIG.SPAWN_AIR_MAX);
         spawnFromBottom();
@@ -2196,6 +2230,9 @@ function drawPickups(now) {
     }
     if (state.decoy) {
         pill('📄 boss distracted ' + Math.ceil(state.decoy.timer / 60) + 's', 'rgba(196, 49, 75, 0.92)');
+    }
+    if (state.storm > 0) {
+        pill('📣 reply-all storm! ' + Math.ceil(state.storm / 60) + 's', 'rgba(216, 59, 1, 0.92)');
     }
 }
 
