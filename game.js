@@ -1837,12 +1837,22 @@ function updateBossObj(b, t, now, elapsedSec) {
         b.windup -= t;
         b.vx *= Math.pow(0.6, t);
         if (b.windup <= 0 && b.grounded && b.platform) {
-            const idx = state.messages.indexOf(b.platform);
-            if (idx !== -1) smashMessage(idx);
-            b.grounded = false;
-            b.platform = null;
-            b.smashCooldown = Math.max(30, CONFIG.BOSS_SMASH_COOLDOWN - state.bossPhase * 8);
-            b.smashPose = 16;
+            if (Math.random() < 0.15) {
+                // He roars… nothing happens. A classic.
+                b.quote = '🔇 You appear to be on mute';
+                b.quoteUntil = now + 1800;
+                b.smashCooldown = CONFIG.BOSS_SMASH_COOLDOWN;
+                b.smashPose = 0;
+                b.vx = 0;
+                Sound.tone(180, 0.25, 'sine', 0.05, 120);
+            } else {
+                const idx = state.messages.indexOf(b.platform);
+                if (idx !== -1) smashMessage(idx);
+                b.grounded = false;
+                b.platform = null;
+                b.smashCooldown = Math.max(30, CONFIG.BOSS_SMASH_COOLDOWN - state.bossPhase * 8);
+                b.smashPose = 16;
+            }
         }
     } else if (reading) {
         // Engrossed in the report — stands still, reads
